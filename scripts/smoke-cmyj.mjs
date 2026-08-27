@@ -79,6 +79,7 @@ const v19Loader = await readFile(path.join(root, 'dist', 'cmyj-1.9', 'loader', '
 const v19LoaderSource = await readFile(path.join(root, 'src', 'cmyj-1.9', 'loader', 'index.js'), 'utf8');
 const v19SchemaSource = await readFile(path.join(root, 'src', 'cmyj-1.9', 'schema', 'definition.js'), 'utf8');
 const v19StatusbarSource = await readFile(path.join(root, 'src', 'cmyj-1.9', 'statusbar', 'index.js'), 'utf8');
+const v19WorldMapSource = await readFile(path.join(root, 'assets', 'maps', 'world_1650_global_overview.js'), 'utf8');
 const v19LegacySource = await readFile(path.join(root, 'src', 'cmyj-1.9', 'legacy', 'index.js'), 'utf8');
 const v19ScenarioSource = await readFile(path.join(root, 'src', 'cmyj-1.9', 'scenario-generator', 'index.js'), 'utf8');
 
@@ -576,7 +577,12 @@ assert.doesNotMatch(v18StatusbarSource, /WORLD_1629/);
 
 assert.ok(v19Loader.length > 1_000, '1.9 加载器未构建');
 assert.match(v19LoaderSource, /REMOTE_ROOT = 'https:\/\/cmyj-frontend\.pages\.dev\/cmyj-1\.9\/'/);
-assert.match(v19StatusbarSource, /STATUSBAR_VERSION = '1\.9\.2'/);
+assert.match(v19StatusbarSource, /STATUSBAR_VERSION = '1\.10\.0'/);
+assert.match(v19StatusbarSource, /WORLD_1650_GLOBAL_OVERVIEW/);
+assert.match(v19StatusbarSource, /world_1650_global_overview\.js/);
+assert.match(v19StatusbarSource, /buildActiveRegionIndex/);
+assert.match(v19WorldMapSource, /^var WORLD_1650_GLOBAL_OVERVIEW=/);
+assert.match(v19WorldMapSource, /"region_key":"奥斯曼帝国"/);
 assert.match(v19StatusbarSource, /async function openScenarioWorkshop\(\)/);
 assert.match(v19StatusbarSource, /openWorkshop: \(\) => openScenarioWorkshop\(\)/);
 assert.match(v19StatusbarSource, /return openCanmingWorkshop\(\{ initialView: 'catalog', initialType: 'scenario' \}\)/);

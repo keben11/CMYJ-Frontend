@@ -16,8 +16,8 @@ import {
 import { normalizeTechnologyCollection } from '../shared/technology.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.9.2';
-const MAP_ASSET_REVISION = 'd697affd3ed71c09e8278cc2ac37b5d3b5dc2ded';
+const STATUSBAR_VERSION = '1.10.0';
+const MAP_ASSET_REVISION = '848b4367aab6a1ef0ccbafc65f586ba1ab7bd374';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
 const CHARACTER_GENERATOR_FILE = '万象生成器.js';
@@ -1017,7 +1017,8 @@ let portraitGalleryFilter = 'all';
 let echartsInstance = null;
 let echartsDetailInstance = null;
 let echartsReady = false;
-let echartsGeoState = null;
+const echartsGeoState = { world: null, 'east-asia': null };
+let mapFeatureLabels = {};
 let echartsGraphInstance = null;
 let savedFoldState = new Set();
 let savedTabsScrollLeft = 0;
@@ -1026,6 +1027,7 @@ let renderedTab = activeTab;
 const savedContentScroll = {};
 let settleSessionId = ''; // 会话标记：换档时重置本地结算锁
 let mapMode = loadStorage('mapMode', 'status');
+let mapScope = loadStorage('mapScope', 'world');
 let marketTransactionPending = false;
 
 function syncActiveDlcRelationshipGraph(context = ACTIVE_DLC_CONTEXT) {
@@ -1154,6 +1156,44 @@ function buildEastAsiaGeo() {
   return overview?.features ? overview : { type: 'FeatureCollection', features: [] };
 }
 
+/** 读取 1650 全球底图；所有区域都暴露稳定 region_key，可按剧情需要接入 MVU。 */
+function buildWorldGeo() {
+  const overview = frame.contentWindow?.WORLD_1650_GLOBAL_OVERVIEW;
+  return overview?.features ? overview : { type: 'FeatureCollection', features: [] };
+}
+
+function getActiveMapGeo() {
+  return mapScope === 'east-asia' ? buildEastAsiaGeo() : buildWorldGeo();
+}
+
+function getActiveMapName() {
+  return mapScope === 'east-asia' ? 'east_asia_1634_provinces' : 'world_1650_global_overview';
+}
+
+function buildMapFeatureLabels(geo) {
+  return Object.fromEntries(
+    (geo?.features || []).map(feature => {
+      const properties = feature?.properties || {};
+      return [properties.name, properties.display_name || properties.name || '未定区域'];
+    }),
+  );
+}
+
+function getMapFeatureLabel(geoName) {
+  return mapFeatureLabels[geoName] || geoName || '未定区域';
+}
+
+function captureMapViewport() {
+  if (!echartsInstance) return;
+  try {
+    const option = echartsInstance.getOption();
+    const series = option?.series?.[0];
+    if (series) echartsGeoState[mapScope] = { center: series.center, zoom: series.zoom };
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 从原始数据中提取一个地区的州府/分区细图。 */
 function buildRegionDetailGeo(regionName) {
   const world = frame.contentWindow?.WORLD_1634;
@@ -1225,8 +1265,32 @@ const GEO_TO_REGION = (() => {
   return map;
 })();
 
+let activeRegionGeoMap = REGION_GEO_MAP;
+let activeGeoToRegion = GEO_TO_REGION;
+
+/** 将当前地图资产中的稳定 region_key 编入 MVU 映射；同一政权的多个面会共享一条地区记录。 */
+function buildActiveRegionIndex(geo) {
+  const regionGeoMap = Object.fromEntries(Object.entries(REGION_GEO_MAP).map(([regionName, geoNames]) => [regionName, [...geoNames]]));
+  const geoToRegion = { ...GEO_TO_REGION };
+  for (const feature of geo?.features || []) {
+    const geoName = feature?.properties?.name;
+    const regionName = feature?.properties?.region_key;
+    if (!geoName || !regionName) continue;
+    if (!regionGeoMap[regionName]) regionGeoMap[regionName] = [];
+    if (!regionGeoMap[regionName].includes(geoName)) regionGeoMap[regionName].push(geoName);
+    geoToRegion[geoName] = regionName;
+  }
+  activeRegionGeoMap = regionGeoMap;
+  activeGeoToRegion = geoToRegion;
+}
+
 function findRegionByGeoName(geoName) {
-  return GEO_TO_REGION[geoName] || null;
+  return activeGeoToRegion[geoName] || null;
+}
+
+function getMapRegionRecord(regionName) {
+  const regions = get(statData, '天下地图.地区态势', {});
+  return regionName && regions && typeof regions === 'object' ? regions[regionName] || null : null;
 }
 
 /** 归属着色只读取当前结构中的显式阵营。 */
@@ -1271,7 +1335,7 @@ function buildStatusData(regions, isNight) {
     失控: isNight ? '#564465' : '#6a507a',
   };
   const result = [];
-  for (const [regionName, geoNames] of Object.entries(REGION_GEO_MAP)) {
+  for (const [regionName, geoNames] of Object.entries(activeRegionGeoMap)) {
     const status = regions[regionName]?.争夺状态;
     const color = status ? colorMap[status] : isNight ? '#4a3828' : '#d4c5a0';
     for (const geoName of geoNames) {
@@ -1284,7 +1348,7 @@ function buildStatusData(regions, isNight) {
 function buildOwnershipData(regions, isNight) {
   const colors = isNight ? OWNERSHIP_COLORS_NIGHT : OWNERSHIP_COLORS_DAY;
   const result = [];
-  for (const [regionName, geoNames] of Object.entries(REGION_GEO_MAP)) {
+  for (const [regionName, geoNames] of Object.entries(activeRegionGeoMap)) {
     const owner = normalizeOwner(regions[regionName]?.实控阵营);
     const color = colors[owner];
     for (const geoName of geoNames) {
@@ -1298,7 +1362,7 @@ function buildOwnershipData(regions, isNight) {
 function initEChartsMap() {
   const win = frame.contentWindow;
   const echarts = win?.echarts;
-  if (!echarts || !win?.WORLD_1634 || !win?.WORLD_1634_OVERVIEW) {
+  if (!echarts || !win?.WORLD_1634 || !win?.WORLD_1634_OVERVIEW || !win?.WORLD_1650_GLOBAL_OVERVIEW) {
     echartsReady = false;
     return;
   }
@@ -1306,10 +1370,11 @@ function initEChartsMap() {
   if (!dom) return;
   echartsReady = true;
 
-  // 注册地图（仅首次）
-  if (!echarts.getMap('east_asia_1634_provinces')) {
-    echarts.registerMap('east_asia_1634_provinces', buildEastAsiaGeo());
-  }
+  const activeGeo = getActiveMapGeo();
+  const activeMapName = getActiveMapName();
+  buildActiveRegionIndex(activeGeo);
+  mapFeatureLabels = buildMapFeatureLabels(activeGeo);
+  if (!echarts.getMap(activeMapName)) echarts.registerMap(activeMapName, activeGeo);
 
   // 销毁旧实例避免重复初始化
   if (echartsInstance) {
@@ -1320,16 +1385,31 @@ function initEChartsMap() {
   // 不使用 geo 组件，全部配置集中在 map series（确保 per-region 着色生效）
   const regionData = buildRegionData();
   const isNight = theme === 'night' || theme === 'star';
+  const savedViewport = echartsGeoState[mapScope];
+  const defaultCenter = mapScope === 'east-asia' ? [110, 35] : [15, 18];
+  const defaultZoom = mapScope === 'east-asia' ? 1.5 : 1.05;
   echartsInstance.setOption({
     backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      confine: true,
+      formatter: params => {
+        const regionName = findRegionByGeoName(params.name);
+        const label = getMapFeatureLabel(params.name);
+        const tracked = getMapRegionRecord(regionName);
+        return tracked
+          ? `${html(label)}<br><small>点击查看动态态势</small>`
+          : `${html(label)}<br><small>1650 历史基线 · 点击查看并等待剧情建档</small>`;
+      },
+    },
     series: [
       {
         type: 'map',
-        map: 'east_asia_1634_provinces',
+        map: activeMapName,
         roam: true,
-        center: echartsGeoState?.center || [110, 35],
-        zoom: echartsGeoState?.zoom || 1.5,
-        scaleLimit: { min: 1, max: 8 },
+        center: savedViewport?.center || defaultCenter,
+        zoom: savedViewport?.zoom || defaultZoom,
+        scaleLimit: { min: 1, max: mapScope === 'east-asia' ? 8 : 12 },
         label: { show: false },
         itemStyle: {
           areaColor: isNight ? 'rgba(42,36,32,0.85)' : 'rgba(175,148,115,0.82)',
@@ -1342,14 +1422,13 @@ function initEChartsMap() {
             borderColor: isNight ? 'rgba(227,193,147,0.8)' : 'rgba(110,70,30,0.75)',
             borderWidth: 1.5,
           },
-          label: { show: true, color: '#e3c193', fontSize: 11 },
+          label: { show: true, color: '#e3c193', fontSize: 11, formatter: params => getMapFeatureLabel(params.name) },
         },
         data: regionData,
         selectedMode: false,
       },
     ],
   });
-  echartsGeoState = null;
 
   // 点击事件：直接更新详情面板，不触发全量 render（避免销毁地图 DOM）
   echartsInstance.on('click', 'series', params => {
@@ -1696,7 +1775,7 @@ function initGraphChart() {
 }
 
 function mapColor(regionName) {
-  const region = get(statData, `天下地图.地区态势.${regionName}`, null);
+  const region = getMapRegionRecord(regionName);
   if (!region || !region.争夺状态) return 'var(--bar-track)';
   const status = String(region.争夺状态);
   if (status === '稳定') return 'var(--map-stable,#6f8a67)';
@@ -1729,9 +1808,15 @@ function renderMap() {
   return `
     <div class="cm-map-wrap">
       <div class="cm-map-mode-bar">
-        <span class="cm-map-mode-toggles">
-          <button class="cm-map-mode-btn${mapMode === 'status' ? ' active' : ''}" data-action="map-mode" data-mode="status">态势</button>
-          <button class="cm-map-mode-btn${mapMode === 'ownership' ? ' active' : ''}" data-action="map-mode" data-mode="ownership">归属</button>
+        <span class="cm-map-control-groups">
+          <span class="cm-map-mode-toggles cm-map-scope-toggles" aria-label="地图视域">
+            <button class="cm-map-mode-btn${mapScope === 'world' ? ' active' : ''}" data-action="map-scope" data-scope="world" aria-pressed="${mapScope === 'world'}">世界</button>
+            <button class="cm-map-mode-btn${mapScope === 'east-asia' ? ' active' : ''}" data-action="map-scope" data-scope="east-asia" aria-pressed="${mapScope === 'east-asia'}">东亚</button>
+          </span>
+          <span class="cm-map-mode-toggles" aria-label="地图着色">
+            <button class="cm-map-mode-btn${mapMode === 'status' ? ' active' : ''}" data-action="map-mode" data-mode="status" aria-pressed="${mapMode === 'status'}">态势</button>
+            <button class="cm-map-mode-btn${mapMode === 'ownership' ? ' active' : ''}" data-action="map-mode" data-mode="ownership" aria-pressed="${mapMode === 'ownership'}">归属</button>
+          </span>
         </span>
         <span class="cm-map-legend">${(mapMode === 'ownership' ? OWNERSHIP_LEGEND : MAP_LEGEND)
           .map(
@@ -1740,8 +1825,13 @@ function renderMap() {
           )
           .join('')}</span>
       </div>
+      <p class="cm-map-scope-note">${
+        mapScope === 'world'
+          ? '1650 年世界底图；已有地区显示当前剧情态势，未建档区域在剧情到达后会按同一 MVU 结构自动着色。'
+          : '东亚细分交互层；点击地区可查看州府分图与当前剧情态势。'
+      }</p>
       <div id="echarts-map-wrapper">
-        <div id="echarts-map"></div>
+        <div id="echarts-map" role="img" aria-label="${mapScope === 'world' ? '1650 年世界底图' : '东亚细分'}动态舆图"></div>
         <div id="cm-map-overlay" class="cm-map-overlay${mapSelected ? ' active' : ''}">${mapSelected ? renderMapDetail() : ''}</div>
       </div>
     </div>
@@ -1749,8 +1839,9 @@ function renderMap() {
 }
 
 function renderMapDetail() {
-  const region = get(statData, `天下地图.地区态势.${mapSelected}`, {});
-  const powers = region.主要势力 || {};
+  const region = getMapRegionRecord(mapSelected);
+  const tracked = !!region && typeof region === 'object' && !!region.争夺状态;
+  const powers = region?.主要势力 || {};
   const detailCount = buildRegionDetailGeo(mapSelected).features.length;
   return `
     <div class="cm-map-overlay-card">
@@ -1759,6 +1850,16 @@ function renderMapDetail() {
         <button class="cm-map-overlay-close" id="btn-close-map-overlay">×</button>
       </header>
       <div class="cm-map-overlay-body">
+        ${
+          tracked
+            ? ''
+            : `<div class="cm-map-untracked">
+          <b>1650 历史基线</b>
+          <p>此区域尚未进入当前剧情账本。剧情抵达或世界推演涉及此地时，在 <code>天下地图.地区态势.${html(
+            mapSelected,
+          )}</code> 建立完整记录，舆图便会自动显示态势、归属与事件。</p>
+        </div>`
+        }
         ${
           detailCount
             ? `<section class="cm-map-drill">
@@ -1774,13 +1875,17 @@ function renderMapDetail() {
         </section>`
             : ''
         }
-        <div class="cm-info-grid">
+        ${
+          tracked
+            ? `<div class="cm-info-grid">
           ${meta('名义归属', region.名义归属 || '未载')}
           ${meta('实控势力', region.实控势力 || '未载')}
           ${meta('实控阵营', region.实控阵营 || '未知')}
           ${meta('争夺状态', region.争夺状态 || '未载')}
         </div>
-        <p>${html(region.最近大事 || '暂无最近大事。')}</p>
+        <p>${html(region.最近大事 || '暂无最近大事。')}</p>`
+            : ''
+        }
         ${
           entries(powers).length
             ? `
@@ -1798,8 +1903,8 @@ function renderMapDetail() {
             .join('')}</div>`
             : ''
         }
-        ${region.军事态势 ? `<p><small>军事态势：${html(region.军事态势)}</small></p>` : ''}
-        ${region.经济态势 ? `<p><small>经济态势：${html(region.经济态势)}</small></p>` : ''}
+        ${region?.军事态势 ? `<p><small>军事态势：${html(region.军事态势)}</small></p>` : ''}
+        ${region?.经济态势 ? `<p><small>经济态势：${html(region.经济态势)}</small></p>` : ''}
       </div>
     </div>`;
 }
@@ -6064,6 +6169,7 @@ function styleText() {
     .cm-private-row:hover,.cm-power-row:hover{transform:translateY(-1px)}
     .cm-diff-btn:hover{transform:translateY(-1px)}
     .theme-star .cm-panel:after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;border-radius:22px;animation:cm-star-pulse 8s ease-in-out infinite alternate}@media (max-width:768px){.cm-panel{border-radius:16px}.cm-header{padding:14px;align-items:center}.cm-tools-dropdown{right:auto;left:0}.cm-refresh-time{display:none}.cm-shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}.cm-tabs{display:flex;gap:8px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px}.cm-tabs button{width:auto;white-space:nowrap}.cm-content{padding:12px}.cm-grid.two,.cm-grid.three{grid-template-columns:1fr}.cm-list{grid-template-columns:1fr}.cm-mini-bars,.cm-subgrid{grid-template-columns:1fr}.cm-row-item{grid-template-columns:1fr}.cm-row-tags{justify-content:flex-start}.cm-info-grid{grid-template-columns:1fr}.cm-private-row{grid-template-columns:34px 1fr auto;gap:8px;padding:8px 10px}.cm-power-row{grid-template-columns:34px 1fr auto;gap:8px;padding:8px 10px}.cm-power-avatar{width:34px;height:34px;font-size:16px}.cm-private-avatar{width:34px;height:34px}.cm-hero{display:block}.cm-seal{display:none}.cm-portrait-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}.cm-portrait-detail-grid{grid-template-columns:1fr}}.is-mobile .cm-panel{border-radius:16px}.is-mobile .cm-header{padding:14px;align-items:center}.is-mobile .cm-tools-dropdown{right:auto;left:0}.is-mobile .cm-refresh-time{display:none}.is-mobile .cm-shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}.is-mobile .cm-tabs{display:flex;gap:8px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px}.is-mobile .cm-tabs button{width:auto;white-space:nowrap}.is-mobile .cm-content{padding:12px}.is-mobile .cm-grid.two,.is-mobile .cm-grid.three{grid-template-columns:1fr}.is-mobile .cm-list{grid-template-columns:1fr}.is-mobile .cm-mini-bars,.is-mobile .cm-subgrid{grid-template-columns:1fr}.is-mobile .cm-row-item{grid-template-columns:1fr}.is-mobile .cm-row-tags{justify-content:flex-start}.is-mobile .cm-info-grid{grid-template-columns:1fr}.is-mobile .cm-private-row{grid-template-columns:34px 1fr auto;gap:8px;padding:8px 10px}.is-mobile .cm-private-avatar{width:34px;height:34px}.is-mobile .cm-hero{display:block}.is-mobile .cm-seal{display:none}.is-mobile .cm-portrait-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}.is-mobile .cm-portrait-detail-grid{grid-template-columns:1fr}.is-mobile .cm-modal-character-studio,.is-mobile .cm-modal-character-manager,.is-mobile .cm-modal-portrait-manager{width:100%;max-height:96vh;border-radius:14px}.is-mobile .cm-studio{min-height:0}.is-mobile .cm-studio-content{padding:10px}.is-mobile .cm-studio-tabs>button{font-size:12px;padding:5px 8px}.is-mobile .cm-character-toolbar,.is-mobile .cm-portrait-toolbar{flex-wrap:wrap;gap:6px;align-items:center}.is-mobile .cm-character-toolbar .cm-portrait-select,.is-mobile .cm-portrait-toolbar .cm-portrait-select{min-width:100%;flex-basis:100%}.is-mobile .cm-character-toolbar-actions{width:100%;margin-top:4px}.is-mobile .cm-character-worldbook-row{flex-wrap:wrap;gap:6px}.is-mobile .cm-character-picker-results{max-height:200px}.is-mobile .cm-portrait-toolbar-btn{font-size:12px;padding:0 8px;height:30px}.is-mobile .cm-portrait-form label{font-size:12px}.is-mobile .cm-portrait-category-editor{padding:8px}.is-mobile .cm-background-input{padding:8px 10px;font-size:13px}.is-mobile .cm-studio-sidebar{padding:10px!important;min-width:0!important;overflow:hidden!important;max-width:100%!important}.is-mobile .cm-studio-character-list{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;max-height:none!important;overflow-x:auto!important;overflow-y:hidden!important;gap:4px}.is-mobile .cm-studio-character{min-width:110px!important;flex-shrink:0!important}.is-mobile .cm-studio-tabs{flex-wrap:wrap}.is-mobile .cm-studio-actions{margin-left:0;width:100%;justify-content:flex-start}@media(max-width:620px){.cm-modal-character-studio,.cm-modal-character-manager,.cm-modal-portrait-manager{width:100%;max-height:96vh;border-radius:14px}.cm-studio{min-height:0}.cm-studio-content{padding:10px}.cm-studio-tabs>button{font-size:12px;padding:5px 8px}.cm-character-toolbar,.cm-portrait-toolbar{flex-wrap:wrap;gap:6px;align-items:center}.cm-character-toolbar .cm-portrait-select,.cm-portrait-toolbar .cm-portrait-select{min-width:100%;flex-basis:100%}.cm-character-toolbar-actions{width:100%;margin-top:4px}.cm-character-worldbook-row{flex-wrap:wrap;gap:6px}.cm-character-picker-results{max-height:200px}.cm-portrait-toolbar-btn{font-size:12px;padding:0 8px;height:30px}.cm-portrait-form label{font-size:12px}.cm-portrait-category-editor{padding:8px}.cm-background-input{padding:8px 10px;font-size:13px}}
+    .cm-map-control-groups{display:flex;flex-wrap:wrap;gap:8px}.cm-map-scope-note{margin:0;color:var(--muted);font-size:12px;line-height:1.6}.cm-map-untracked{border:1px dashed var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:rgba(0,0,0,.035)}.cm-map-untracked b{color:var(--accent)}.cm-map-untracked p{margin:6px 0 0;color:var(--muted);line-height:1.7}.cm-map-untracked code{word-break:break-all;color:var(--ink)}
     .cm-map-overlay-card{width:min(680px,96%);max-height:88%;padding:14px}
     .cm-map-detail-head{margin-bottom:10px}
     .cm-map-drill{position:relative;margin:0 0 12px;padding:9px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(145deg,rgba(255,255,255,.08),rgba(0,0,0,.035));overflow:hidden}
@@ -6107,11 +6213,19 @@ function loadIframeScripts() {
       const script3 = doc.createElement('script');
       script3.src = `https://testingcf.jsdelivr.net/gh/CSEZK/CMYJ-Frontend@${MAP_ASSET_REVISION}/assets/maps/world_1634_overview.js`;
       script3.onload = () => {
-        echartsReady = true;
-        // 如果已在地图标签页，初始化
-        if (isOpen && activeTab === 'map') {
-          initEChartsMap();
-        }
+        const script4 = doc.createElement('script');
+        script4.src = `https://testingcf.jsdelivr.net/gh/CSEZK/CMYJ-Frontend@${MAP_ASSET_REVISION}/assets/maps/world_1650_global_overview.js`;
+        script4.onload = () => {
+          echartsReady = true;
+          // 如果已在地图标签页，初始化
+          if (isOpen && activeTab === 'map') {
+            initEChartsMap();
+          }
+        };
+        script4.onerror = () => {
+          win._canmingScriptsLoaded = false;
+        };
+        doc.head.appendChild(script4);
       };
       script3.onerror = () => {
         win._canmingScriptsLoaded = false;
@@ -6159,16 +6273,7 @@ function render() {
   if (!frameDocument) return;
   if (isOpen) {
     // 保存当前地图视口状态（body.innerHTML 会销毁 ECharts DOM）
-    if (echartsInstance) {
-      try {
-        const opt = echartsInstance.getOption();
-        if (opt && opt.series && opt.series[0]) {
-          echartsGeoState = { center: opt.series[0].center, zoom: opt.series[0].zoom };
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    captureMapViewport();
     if (echartsGraphInstance) {
       try {
         echartsGraphInstance.dispose();
@@ -6275,7 +6380,7 @@ function render() {
 let echartsRetryCount = 0;
 function tryInitEChartsMap() {
   const win = frame.contentWindow;
-  if (win?.echarts && win?.WORLD_1634 && win?.WORLD_1634_OVERVIEW) {
+  if (win?.echarts && win?.WORLD_1634 && win?.WORLD_1634_OVERVIEW && win?.WORLD_1650_GLOBAL_OVERVIEW) {
     echartsRetryCount = 0;
     initEChartsMap();
     return;
@@ -6566,6 +6671,24 @@ function bindFrameEvents() {
     }
 
     // 地图模式切换
+    // 切换世界 / 东亚视域；各自保存缩放和中心点。
+    const mapScopeBtn = target.closest('[data-action="map-scope"]');
+    if (mapScopeBtn) {
+      const scope = mapScopeBtn.getAttribute('data-scope');
+      if (['world', 'east-asia'].includes(scope) && scope !== mapScope) {
+        captureMapViewport();
+        mapScope = scope;
+        saveStorage('mapScope', scope);
+        mapSelected = null;
+        echartsInstance?.dispose();
+        echartsInstance = null;
+        echartsDetailInstance?.dispose();
+        echartsDetailInstance = null;
+        render();
+      }
+      return;
+    }
+
     const mapModeBtn = target.closest('[data-action="map-mode"]');
     if (mapModeBtn) {
       const mode = mapModeBtn.getAttribute('data-mode');
