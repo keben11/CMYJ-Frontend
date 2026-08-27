@@ -17,6 +17,7 @@ import { normalizeTechnologyCollection } from '../shared/technology.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
 const STATUSBAR_VERSION = '1.10.0';
+const MAP_ASSET_REPOSITORY = 'keben11/CMYJ-Frontend';
 const MAP_ASSET_REVISION = '848b4367aab6a1ef0ccbafc65f586ba1ab7bd374';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -6208,13 +6209,13 @@ function loadIframeScripts() {
 
   script1.onload = () => {
     const script2 = doc.createElement('script');
-    script2.src = `https://testingcf.jsdelivr.net/gh/CSEZK/CMYJ-Frontend@${MAP_ASSET_REVISION}/assets/maps/world_1634.js`;
+    script2.src = `https://testingcf.jsdelivr.net/gh/${MAP_ASSET_REPOSITORY}@${MAP_ASSET_REVISION}/assets/maps/world_1634.js`;
     script2.onload = () => {
       const script3 = doc.createElement('script');
-      script3.src = `https://testingcf.jsdelivr.net/gh/CSEZK/CMYJ-Frontend@${MAP_ASSET_REVISION}/assets/maps/world_1634_overview.js`;
+      script3.src = `https://testingcf.jsdelivr.net/gh/${MAP_ASSET_REPOSITORY}@${MAP_ASSET_REVISION}/assets/maps/world_1634_overview.js`;
       script3.onload = () => {
         const script4 = doc.createElement('script');
-        script4.src = `https://testingcf.jsdelivr.net/gh/CSEZK/CMYJ-Frontend@${MAP_ASSET_REVISION}/assets/maps/world_1650_global_overview.js`;
+        script4.src = `https://testingcf.jsdelivr.net/gh/${MAP_ASSET_REPOSITORY}@${MAP_ASSET_REVISION}/assets/maps/world_1650_global_overview.js`;
         script4.onload = () => {
           echartsReady = true;
           // 如果已在地图标签页，初始化

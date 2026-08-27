@@ -1,6 +1,6 @@
 const RUNTIME_KEY = '__CMYJRemoteScriptsV18';
 const RUNTIME_REVISION = 2;
-const REMOTE_ROOT = 'https://cmyj-frontend.pages.dev/cmyj-1.9/';
+const REMOTE_ROOT = 'https://keben11.github.io/CMYJ-Frontend/cmyj-1.9/';
 
 const ROLE_FILES = Object.freeze({
   schema: 'schema',
