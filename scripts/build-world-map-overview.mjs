@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const detailedMapPath = path.join(root, 'assets', 'maps', 'world_1634.js');
 const regionalOverviewPath = path.join(root, 'assets', 'maps', 'world_1634_overview.js');
-const globalOverviewPath = path.join(root, 'assets', 'maps', 'world_1634_global_overview.js');
+const globalOverviewPath = path.join(root, 'assets', 'maps', 'world_1650_global_overview.js');
 
 const WORLD_PREFIX = 'var WORLD_1634=';
 const REGIONAL_PREFIX = 'var WORLD_1634_OVERVIEW=';
-const GLOBAL_PREFIX = 'var WORLD_1634_GLOBAL_OVERVIEW=';
+const GLOBAL_PREFIX = 'var WORLD_1650_GLOBAL_OVERVIEW=';
 
 // These 1650 baseline faces are replaced by the repository's more detailed 1634 reconstruction.
 const SUPERSEDED_WORLD_BASE_NAMES = new Set(['Korea', 'Tokugawa Shogunate', 'Ainu']);
@@ -63,7 +63,7 @@ function parseWrappedMap(source, prefix, sourcePath) {
 function displayNameForWorldFeature(feature) {
   const properties = feature?.properties || {};
   const sourceName = String(properties.name || properties.NAME || '').trim();
-  if (!sourceName || sourceName === 'NaN') return '未定区域';
+  if (!sourceName || sourceName === 'NaN') return '';
   return WORLD_POLITY_NAME_ZH[sourceName] || sourceName;
 }
 
@@ -79,14 +79,16 @@ const worldBaseFeatures = detailedMap.features
   .filter(feature => !SUPERSEDED_WORLD_BASE_NAMES.has(feature.properties.name))
   .map((feature, index) => {
     const sourceName = String(feature.properties.name || feature.properties.NAME || '').trim();
+    const displayName = displayNameForWorldFeature(feature) || `未定区域-${index + 1}`;
     return {
       ...feature,
       properties: {
         ...feature.properties,
         name: `world-base:${index}`,
         source_name: sourceName,
-        display_name: displayNameForWorldFeature(feature),
-        reference_year: 1634,
+        display_name: displayName,
+        region_key: displayName,
+        reference_year: 1650,
         dynamic: false,
       },
     };
@@ -97,24 +99,28 @@ const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
   properties: {
     ...feature.properties,
     display_name: feature.properties.name,
-    reference_year: 1634,
+    region_key: feature.properties.name,
+    reference_year: 1650,
+    geometry_reference_year: 1634,
     dynamic: true,
   },
 }));
 
 const globalOverview = {
   type: 'FeatureCollection',
-  name: 'world_1634_global_overview',
-  year: 1634,
+  name: 'world_1650_global_overview',
+  year: 1650,
   metadata: {
-    reference_year: 1634,
+    reference_year: 1650,
     scope: 'global',
-    dynamic_scope: 'East, Southeast and South Asia plus Australia',
+    dynamic_scope: 'All features expose stable region_key values for lazy MVU records',
+    initial_dynamic_scope: 'East, Southeast and South Asia plus Australia',
     detailed_region_source: 'world_1634_overview.js',
+    detailed_region_geometry_year: 1634,
     global_baseline_source: detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
     global_baseline_year: detailedMap.metadata?.world_base_year || 1650,
     accuracy_note:
-      'The 1634 East Asian reconstruction is authoritative for interactive regions; the rest of the world uses the nearest available 1650 macro-boundary baseline as a non-dynamic geographic overview.',
+      'The global political baseline is the source 1650 map. Existing East Asian MVU regions use the detailed 1634 geometry overlay, while live ownership and conflict state always come from the current story record.',
     world_base_features: worldBaseFeatures.length,
     dynamic_region_features: dynamicRegionFeatures.length,
   },
