@@ -26,6 +26,8 @@
     "test:world-turn:1.9": "node scripts/test-world-turn-1.9.mjs",
     "test:technology": "node scripts/test-technology.mjs",
     "test:scenario-cleanup": "node scripts/test-scenario-cleanup.mjs",
+    "build:map:world": "node scripts/build-world-map-overview.mjs",
+    "test:map:world": "node scripts/test-world-map-overview.mjs",
     "package:release-card": "node scripts/package-release-card.mjs",
     "check:release-card": "node scripts/package-release-card.mjs --check"
   },
