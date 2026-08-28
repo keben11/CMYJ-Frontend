@@ -16,9 +16,8 @@ import {
 import { normalizeTechnologyCollection } from '../shared/technology.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.10.0';
-const MAP_ASSET_REPOSITORY = 'keben11/CMYJ-Frontend';
-const MAP_ASSET_REVISION = '848b4367aab6a1ef0ccbafc65f586ba1ab7bd374';
+const STATUSBAR_VERSION = '1.10.1';
+const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
 const CHARACTER_GENERATOR_FILE = '万象生成器.js';
@@ -1157,9 +1156,9 @@ function buildEastAsiaGeo() {
   return overview?.features ? overview : { type: 'FeatureCollection', features: [] };
 }
 
-/** 读取 1650 全球底图；所有区域都暴露稳定 region_key，可按剧情需要接入 MVU。 */
+/** 读取 1634 全球底图；所有区域都暴露稳定 region_key，可按剧情需要接入 MVU。 */
 function buildWorldGeo() {
-  const overview = frame.contentWindow?.WORLD_1650_GLOBAL_OVERVIEW;
+  const overview = frame.contentWindow?.WORLD_1634_GLOBAL_OVERVIEW;
   return overview?.features ? overview : { type: 'FeatureCollection', features: [] };
 }
 
@@ -1168,7 +1167,7 @@ function getActiveMapGeo() {
 }
 
 function getActiveMapName() {
-  return mapScope === 'east-asia' ? 'east_asia_1634_provinces' : 'world_1650_global_overview';
+  return mapScope === 'east-asia' ? 'east_asia_1634_provinces' : 'world_1634_global_overview';
 }
 
 function buildMapFeatureLabels(geo) {
@@ -1363,7 +1362,7 @@ function buildOwnershipData(regions, isNight) {
 function initEChartsMap() {
   const win = frame.contentWindow;
   const echarts = win?.echarts;
-  if (!echarts || !win?.WORLD_1634 || !win?.WORLD_1634_OVERVIEW || !win?.WORLD_1650_GLOBAL_OVERVIEW) {
+  if (!echarts || !win?.WORLD_1634 || !win?.WORLD_1634_OVERVIEW || !win?.WORLD_1634_GLOBAL_OVERVIEW) {
     echartsReady = false;
     return;
   }
@@ -1400,7 +1399,7 @@ function initEChartsMap() {
         const tracked = getMapRegionRecord(regionName);
         return tracked
           ? `${html(label)}<br><small>点击查看动态态势</small>`
-          : `${html(label)}<br><small>1650 历史基线 · 点击查看并等待剧情建档</small>`;
+          : `${html(label)}<br><small>1634 历史基线 · 点击查看并等待剧情建档</small>`;
       },
     },
     series: [
@@ -1828,11 +1827,11 @@ function renderMap() {
       </div>
       <p class="cm-map-scope-note">${
         mapScope === 'world'
-          ? '1650 年世界底图；已有地区显示当前剧情态势，未建档区域在剧情到达后会按同一 MVU 结构自动着色。'
+          ? '1634 年政权快照；缺少精确记录处仅保留宏观地理覆盖。已有地区显示当前剧情态势。'
           : '东亚细分交互层；点击地区可查看州府分图与当前剧情态势。'
       }</p>
       <div id="echarts-map-wrapper">
-        <div id="echarts-map" role="img" aria-label="${mapScope === 'world' ? '1650 年世界底图' : '东亚细分'}动态舆图"></div>
+        <div id="echarts-map" role="img" aria-label="${mapScope === 'world' ? '1634 年世界底图' : '东亚细分'}动态舆图"></div>
         <div id="cm-map-overlay" class="cm-map-overlay${mapSelected ? ' active' : ''}">${mapSelected ? renderMapDetail() : ''}</div>
       </div>
     </div>
@@ -1855,7 +1854,7 @@ function renderMapDetail() {
           tracked
             ? ''
             : `<div class="cm-map-untracked">
-          <b>1650 历史基线</b>
+          <b>1634 历史基线</b>
           <p>此区域尚未进入当前剧情账本。剧情抵达或世界推演涉及此地时，在 <code>天下地图.地区态势.${html(
             mapSelected,
           )}</code> 建立完整记录，舆图便会自动显示态势、归属与事件。</p>
@@ -6209,13 +6208,13 @@ function loadIframeScripts() {
 
   script1.onload = () => {
     const script2 = doc.createElement('script');
-    script2.src = `https://testingcf.jsdelivr.net/gh/${MAP_ASSET_REPOSITORY}@${MAP_ASSET_REVISION}/assets/maps/world_1634.js`;
+    script2.src = `${MAP_ASSET_ROOT}/world_1634.js`;
     script2.onload = () => {
       const script3 = doc.createElement('script');
-      script3.src = `https://testingcf.jsdelivr.net/gh/${MAP_ASSET_REPOSITORY}@${MAP_ASSET_REVISION}/assets/maps/world_1634_overview.js`;
+      script3.src = `${MAP_ASSET_ROOT}/world_1634_overview.js`;
       script3.onload = () => {
         const script4 = doc.createElement('script');
-        script4.src = `https://testingcf.jsdelivr.net/gh/${MAP_ASSET_REPOSITORY}@${MAP_ASSET_REVISION}/assets/maps/world_1650_global_overview.js`;
+        script4.src = `${MAP_ASSET_ROOT}/world_1634_global_overview.js`;
         script4.onload = () => {
           echartsReady = true;
           // 如果已在地图标签页，初始化
@@ -6381,7 +6380,7 @@ function render() {
 let echartsRetryCount = 0;
 function tryInitEChartsMap() {
   const win = frame.contentWindow;
-  if (win?.echarts && win?.WORLD_1634 && win?.WORLD_1634_OVERVIEW && win?.WORLD_1650_GLOBAL_OVERVIEW) {
+  if (win?.echarts && win?.WORLD_1634 && win?.WORLD_1634_OVERVIEW && win?.WORLD_1634_GLOBAL_OVERVIEW) {
     echartsRetryCount = 0;
     initEChartsMap();
     return;

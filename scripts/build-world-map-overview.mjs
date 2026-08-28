@@ -1,52 +1,21 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { historicalPolityNameZh } from './map-polity-names-zh.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const detailedMapPath = path.join(root, 'assets', 'maps', 'world_1634.js');
 const regionalOverviewPath = path.join(root, 'assets', 'maps', 'world_1634_overview.js');
-const globalOverviewPath = path.join(root, 'assets', 'maps', 'world_1650_global_overview.js');
+const cliopatriaSnapshotPath = path.join(root, 'assets', 'maps', 'cliopatria_1634_snapshot.js');
+const globalOverviewPath = path.join(root, 'assets', 'maps', 'world_1634_global_overview.js');
 
 const WORLD_PREFIX = 'var WORLD_1634=';
 const REGIONAL_PREFIX = 'var WORLD_1634_OVERVIEW=';
-const GLOBAL_PREFIX = 'var WORLD_1650_GLOBAL_OVERVIEW=';
+const CLIOPATRIA_PREFIX = 'var CLIOPATRIA_1634_SNAPSHOT=';
+const GLOBAL_PREFIX = 'var WORLD_1634_GLOBAL_OVERVIEW=';
 
 // These 1650 baseline faces are replaced by the repository's more detailed 1634 reconstruction.
 const SUPERSEDED_WORLD_BASE_NAMES = new Set(['Korea', 'Tokugawa Shogunate', 'Ainu']);
-
-// Keep the source polity name for auditability while presenting the most visible world powers in Chinese.
-const WORLD_POLITY_NAME_ZH = {
-  'Ottoman Empire': '奥斯曼帝国',
-  'Safavid Empire': '萨法维帝国',
-  'Tsardom of Muscovy': '俄罗斯沙皇国',
-  'Polish-Lithuanian Commonwealth': '波兰—立陶宛联邦',
-  'Spanish Habsburg': '西班牙哈布斯堡',
-  Spain: '西班牙',
-  Portugal: '葡萄牙',
-  France: '法兰西王国',
-  England: '英格兰王国',
-  Scotland: '苏格兰王国',
-  'Dutch Republic': '尼德兰联省共和国',
-  Denmark: '丹麦—挪威',
-  Sweden: '瑞典王国',
-  'Holy Roman Empire': '神圣罗马帝国',
-  'Papal States': '教皇国',
-  Venice: '威尼斯共和国',
-  'Vice-Royalty of New Spain': '新西班牙总督辖区',
-  'Vice-Royalty of Peru': '秘鲁总督辖区',
-  'Quazaq Khanate': '哈萨克汗国',
-  'Khiva Khanate': '希瓦汗国',
-  'Nogai Horde': '诺盖汗国',
-  'central Asian khanates': '中亚诸汗国',
-  Oman: '阿曼',
-  Ethiopia: '埃塞俄比亚帝国',
-  'Hausa States': '豪萨诸邦',
-  Morocco: '摩洛哥',
-  Madagascar: '马达加斯加诸国',
-  Maori: '毛利诸部',
-  Papous: '巴布亚诸部',
-  'Tuʻi Tonga Empire': '汤加帝国',
-};
 
 function parseWrappedMap(source, prefix, sourcePath) {
   if (!source.startsWith(prefix)) throw new Error(`Unexpected map wrapper in ${sourcePath}`);
@@ -60,26 +29,21 @@ function parseWrappedMap(source, prefix, sourcePath) {
   return JSON.parse(json);
 }
 
-function displayNameForWorldFeature(feature) {
-  const properties = feature?.properties || {};
-  const sourceName = String(properties.name || properties.NAME || '').trim();
-  if (!sourceName || sourceName === 'NaN') return '';
-  return WORLD_POLITY_NAME_ZH[sourceName] || sourceName;
-}
-
-const [detailedSource, regionalSource] = await Promise.all([
+const [detailedSource, regionalSource, cliopatriaSource] = await Promise.all([
   readFile(detailedMapPath, 'utf8'),
   readFile(regionalOverviewPath, 'utf8'),
+  readFile(cliopatriaSnapshotPath, 'utf8'),
 ]);
 const detailedMap = parseWrappedMap(detailedSource, WORLD_PREFIX, detailedMapPath);
 const regionalOverview = parseWrappedMap(regionalSource, REGIONAL_PREFIX, regionalOverviewPath);
+const cliopatriaSnapshot = parseWrappedMap(cliopatriaSource, CLIOPATRIA_PREFIX, cliopatriaSnapshotPath);
 
 const worldBaseFeatures = detailedMap.features
   .filter(feature => feature?.properties?.category === 'world_base')
   .filter(feature => !SUPERSEDED_WORLD_BASE_NAMES.has(feature.properties.name))
   .map((feature, index) => {
     const sourceName = String(feature.properties.name || feature.properties.NAME || '').trim();
-    const displayName = displayNameForWorldFeature(feature) || `未定区域-${index + 1}`;
+    const displayName = historicalPolityNameZh(sourceName, index);
     return {
       ...feature,
       properties: {
@@ -88,11 +52,35 @@ const worldBaseFeatures = detailedMap.features
         source_name: sourceName,
         display_name: displayName,
         region_key: displayName,
-        reference_year: 1650,
+        reference_year: 1634,
+        geometry_reference_year: 1650,
+        historical_accuracy: 'fallback_coverage_only',
         dynamic: false,
       },
     };
   });
+
+// Cliopatria 提供直接覆盖 1634 年的政权面。它们绘制在 1650 宏观覆盖层之上，
+// 修正英伦、俄罗斯、神圣罗马帝国、波斯、印度等在 1634 年已经不同的边界。
+const exact1634Features = cliopatriaSnapshot.features.map((feature, index) => {
+  const sourceName = String(feature.properties?.name || '').trim();
+  const displayName = historicalPolityNameZh(sourceName, index);
+  return {
+    ...feature,
+    properties: {
+      ...feature.properties,
+      name: `cliopatria-1634:${index}`,
+      source_name: sourceName,
+      display_name: displayName,
+      region_key: displayName,
+      reference_year: 1634,
+      geometry_reference_year: 1634,
+      historical_accuracy: 'exact_temporal_snapshot',
+      geometry_source: 'Seshat Global History Databank / Cliopatria v0.2.0',
+      dynamic: false,
+    },
+  };
+});
 
 const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
   ...feature,
@@ -100,34 +88,40 @@ const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
     ...feature.properties,
     display_name: feature.properties.name,
     region_key: feature.properties.name,
-    reference_year: 1650,
+    reference_year: 1634,
     geometry_reference_year: 1634,
+    historical_accuracy: 'project_1634_regional_reconstruction',
     dynamic: true,
   },
 }));
 
 const globalOverview = {
   type: 'FeatureCollection',
-  name: 'world_1650_global_overview',
-  year: 1650,
+  name: 'world_1634_global_overview',
+  year: 1634,
   metadata: {
-    reference_year: 1650,
+    reference_year: 1634,
     scope: 'global',
     dynamic_scope: 'All features expose stable region_key values for lazy MVU records',
     initial_dynamic_scope: 'East, Southeast and South Asia plus Australia',
     detailed_region_source: 'world_1634_overview.js',
     detailed_region_geometry_year: 1634,
-    global_baseline_source: detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
-    global_baseline_year: detailedMap.metadata?.world_base_year || 1650,
+    exact_snapshot_source: cliopatriaSnapshot.metadata?.source || 'Seshat Global History Databank / Cliopatria',
+    exact_snapshot_source_url: cliopatriaSnapshot.metadata?.source_url,
+    exact_snapshot_license: cliopatriaSnapshot.metadata?.license || 'CC BY 4.0',
+    fallback_coverage_source:
+      detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
+    fallback_coverage_year: detailedMap.metadata?.world_base_year || 1650,
     accuracy_note:
-      'The global political baseline is the source 1650 map. Existing East Asian MVU regions use the detailed 1634 geometry overlay, while live ownership and conflict state always come from the current story record.',
-    world_base_features: worldBaseFeatures.length,
+      'Cliopatria leaf-polity geometry supplies the exact 1634 temporal snapshot. The 1650 macro layer is retained only as cartographic coverage where the exact dataset has no polity, and the project 1634 East Asian reconstruction has final display priority.',
+    fallback_coverage_features: worldBaseFeatures.length,
+    exact_1634_features: exact1634Features.length,
     dynamic_region_features: dynamicRegionFeatures.length,
   },
-  features: [...worldBaseFeatures, ...dynamicRegionFeatures],
+  features: [...worldBaseFeatures, ...exact1634Features, ...dynamicRegionFeatures],
 };
 
 await writeFile(globalOverviewPath, `${GLOBAL_PREFIX}${JSON.stringify(globalOverview)};\n`, 'utf8');
 console.info(
-  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} global baseline faces and ${dynamicRegionFeatures.length} dynamic 1634 regions.`,
+  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces, ${exact1634Features.length} exact 1634 polities and ${dynamicRegionFeatures.length} dynamic 1634 regions.`,
 );
