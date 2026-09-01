@@ -18,36 +18,6 @@ const GLOBAL_PREFIX = 'var WORLD_1634_GLOBAL_OVERVIEW=';
 // These 1650 baseline faces are replaced by the repository's more detailed 1634 reconstruction.
 const SUPERSEDED_WORLD_BASE_NAMES = new Set(['Korea', 'Tokugawa Shogunate', 'Ainu']);
 
-// The project reconstruction is more detailed than Cliopatria in these East Asian regions.
-// Other project regions are retained only as gap coverage so the exact 1634 snapshot wins there.
-const PROJECT_PRIORITY_REGION_NAMES = new Set([
-  '东番',
-  '乌思藏',
-  '云南',
-  '北直隶',
-  '南直隶',
-  '后金',
-  '四川',
-  '宁夏',
-  '察哈尔',
-  '山东',
-  '山西',
-  '广东',
-  '广西',
-  '日本',
-  '朝鲜',
-  '江西',
-  '河南',
-  '浙江',
-  '湖广',
-  '福建',
-  '西域',
-  '贵州',
-  '辽东',
-  '陕西',
-  '青海',
-]);
-
 function parseWrappedMap(source, prefix, sourcePath) {
   if (!source.startsWith(prefix)) throw new Error(`Unexpected map wrapper in ${sourcePath}`);
   // The historical source preserves a few shapefile NaN values as JavaScript literals.
@@ -73,25 +43,6 @@ function multiPolygonToGeometry(coordinates) {
     : { type: 'MultiPolygon', coordinates };
 }
 
-function sanitizeRing(ring) {
-  const cleaned = [];
-  for (const coordinate of ring) {
-    const point = coordinate.map(value => Math.round(value * 1e6) / 1e6);
-    const previous = cleaned.at(-1);
-    if (!previous || previous[0] !== point[0] || previous[1] !== point[1]) cleaned.push(point);
-  }
-  if (cleaned.length && (cleaned[0][0] !== cleaned.at(-1)[0] || cleaned[0][1] !== cleaned.at(-1)[1])) {
-    cleaned.push([...cleaned[0]]);
-  }
-  return cleaned.length >= 4 ? cleaned : null;
-}
-
-function sanitizeMultiPolygon(coordinates) {
-  return coordinates
-    .map(polygon => polygon.map(sanitizeRing).filter(Boolean))
-    .filter(polygon => polygon.length && polygon[0].length >= 4);
-}
-
 function multiPolygonBounds(coordinates) {
   const bounds = [Infinity, Infinity, -Infinity, -Infinity];
   for (const polygon of coordinates) {
@@ -111,25 +62,48 @@ function boundsIntersect(left, right) {
   return left[0] <= right[2] && left[2] >= right[0] && left[1] <= right[3] && left[3] >= right[1];
 }
 
-function subtractHigherPriorityGeometry(feature, masks) {
-  let remainder = sanitizeMultiPolygon(geometryToMultiPolygon(feature.geometry));
-  let remainderBounds = multiPolygonBounds(remainder);
-  for (const mask of masks) {
-    if (!remainder.length) break;
-    if (!boundsIntersect(remainderBounds, mask.bounds)) continue;
-    remainder = sanitizeMultiPolygon(polygonClipping.difference(remainder, mask.coordinates));
-    remainderBounds = multiPolygonBounds(remainder);
+function ringArea(ring) {
+  let area = 0;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    area += ring[previous][0] * ring[index][1] - ring[index][0] * ring[previous][1];
   }
-  const geometry = multiPolygonToGeometry(remainder);
-  return geometry ? { ...feature, geometry } : null;
+  return Math.abs(area) / 2;
 }
 
-function clipFeatureLayer(features, higherPriorityFeatures) {
-  const masks = higherPriorityFeatures.map(feature => {
-    const coordinates = sanitizeMultiPolygon(geometryToMultiPolygon(feature.geometry));
-    return { coordinates, bounds: multiPolygonBounds(coordinates) };
-  });
-  return features.map(feature => subtractHigherPriorityGeometry(feature, masks)).filter(Boolean);
+function featureArea(feature) {
+  return geometryToMultiPolygon(feature.geometry).reduce(
+    (total, polygon) =>
+      total + ringArea(polygon[0]) - polygon.slice(1).reduce((holes, ring) => holes + ringArea(ring), 0),
+    0,
+  );
+}
+
+function deduplicateWholeFeatures(features, preferredFeatures = []) {
+  const accepted = preferredFeatures.map(feature => ({
+    feature,
+    area: featureArea(feature),
+    bounds: multiPolygonBounds(geometryToMultiPolygon(feature.geometry)),
+    coordinates: geometryToMultiPolygon(feature.geometry),
+  }));
+  const output = [];
+  const duplicateIouThreshold = 0.45;
+  const ordered = features.map((feature, index) => ({ feature, index, area: featureArea(feature) }));
+  for (const item of ordered) {
+    const coordinates = geometryToMultiPolygon(item.feature.geometry);
+    const bounds = multiPolygonBounds(coordinates);
+    const duplicate = accepted.some(existing => {
+      if (!boundsIntersect(bounds, existing.bounds)) return false;
+      const overlapArea = featureArea({
+        geometry: multiPolygonToGeometry(polygonClipping.intersection(coordinates, existing.coordinates)),
+      });
+      const unionArea = item.area + existing.area - overlapArea;
+      return unionArea > 0 && overlapArea / unionArea >= duplicateIouThreshold;
+    });
+    if (duplicate) continue;
+    output.push(item.feature);
+    accepted.push({ feature: item.feature, area: item.area, bounds, coordinates });
+  }
+  return output;
 }
 
 const [detailedSource, regionalSource, cliopatriaSource] = await Promise.all([
@@ -187,35 +161,12 @@ const rawExact1634Features = cliopatriaSnapshot.features.map((feature, index) =>
   };
 });
 
-const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
-  ...feature,
-  properties: {
-    ...feature.properties,
-    display_name: feature.properties.name,
-    region_key: feature.properties.name,
-    reference_year: 1634,
-    geometry_reference_year: 1634,
-    historical_accuracy: 'project_1634_regional_reconstruction',
-    cartographic_layer: PROJECT_PRIORITY_REGION_NAMES.has(feature.properties.name)
-      ? 'project_1634_priority'
-      : 'project_1634_gap',
-    dynamic: true,
-  },
-}));
-
-const priorityRegionFeatures = dynamicRegionFeatures.filter(
-  feature => feature.properties.cartographic_layer === 'project_1634_priority',
-);
-const rawGapRegionFeatures = dynamicRegionFeatures.filter(
-  feature => feature.properties.cartographic_layer === 'project_1634_gap',
-);
-const exact1634Features = clipFeatureLayer(rawExact1634Features, priorityRegionFeatures);
-const gapRegionFeatures = clipFeatureLayer(rawGapRegionFeatures, [...priorityRegionFeatures, ...exact1634Features]);
-const worldBaseFeatures = clipFeatureLayer(rawWorldBaseFeatures, [
-  ...priorityRegionFeatures,
-  ...exact1634Features,
-  ...gapRegionFeatures,
-]);
+// The world scope deliberately contains only macro-polity faces. Province-level project
+// reconstruction remains available through world_1634_overview.js in the East Asia scope.
+// Duplicate macro faces are removed as whole features. Exact 1634 faces win over
+// matching 1650 fallback faces; geometries are never cut into artificial fragments.
+const exact1634Features = deduplicateWholeFeatures(rawExact1634Features);
+const worldBaseFeatures = deduplicateWholeFeatures(rawWorldBaseFeatures, exact1634Features);
 
 const globalOverview = {
   type: 'FeatureCollection',
@@ -224,8 +175,8 @@ const globalOverview = {
   metadata: {
     reference_year: 1634,
     scope: 'global',
-    dynamic_scope: 'All features expose stable region_key values for lazy MVU records',
-    initial_dynamic_scope: 'East, Southeast and South Asia plus Australia',
+    dynamic_scope: 'All macro-polity features expose stable region_key values for lazy MVU records',
+    world_scope_detail_policy: 'macro_polities_only',
     detailed_region_source: 'world_1634_overview.js',
     detailed_region_geometry_year: 1634,
     exact_snapshot_source: cliopatriaSnapshot.metadata?.source || 'Seshat Global History Databank / Cliopatria',
@@ -235,20 +186,20 @@ const globalOverview = {
       detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
     fallback_coverage_year: detailedMap.metadata?.world_base_year || 1650,
     accuracy_note:
-      'Cross-source polygons are clipped by priority: project East Asian detail, Cliopatria exact 1634 polity geometry, project gap coverage, then the 1650 fallback layer.',
-    clipping_strategy: 'polygon_difference_by_cartographic_priority',
+      'The global scope contains macro-polity faces only. Duplicate faces are removed whole, with exact 1634 geometry preferred over the 1650 fallback; province-level geometry is reserved for the East Asia scope.',
+    clipping_strategy: 'whole_feature_deduplication_exact_first',
+    duplicate_iou_threshold: 0.45,
     source_fallback_coverage_features: rawWorldBaseFeatures.length,
     fallback_coverage_features: worldBaseFeatures.length,
     source_exact_1634_features: rawExact1634Features.length,
     exact_1634_features: exact1634Features.length,
-    priority_region_features: priorityRegionFeatures.length,
-    gap_region_features: gapRegionFeatures.length,
-    dynamic_region_features: priorityRegionFeatures.length + gapRegionFeatures.length,
+    source_regional_detail_features: regionalOverview.features.length,
+    dynamic_region_features: 0,
   },
-  features: [...worldBaseFeatures, ...gapRegionFeatures, ...exact1634Features, ...priorityRegionFeatures],
+  features: [...worldBaseFeatures, ...exact1634Features],
 };
 
 await writeFile(globalOverviewPath, `${GLOBAL_PREFIX}${JSON.stringify(globalOverview)};\n`, 'utf8');
 console.info(
-  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces, ${exact1634Features.length} exact 1634 polities, ${gapRegionFeatures.length} gap regions and ${priorityRegionFeatures.length} priority regions.`,
+  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces and ${exact1634Features.length} exact 1634 polities after whole-feature deduplication.`,
 );

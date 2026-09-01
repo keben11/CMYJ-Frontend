@@ -16,7 +16,7 @@ import {
 import { normalizeTechnologyCollection } from '../shared/technology.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.10.2';
+const STATUSBAR_VERSION = '1.10.3';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';

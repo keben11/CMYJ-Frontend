@@ -65,24 +65,23 @@ function multiPolygonArea(coordinates) {
   );
 }
 
-function assertNoCrossLayerOverlap(features) {
-  const priorities = { fallback_1650: 0, project_1634_gap: 1, exact_1634: 2, project_1634_priority: 3 };
+function assertNoDuplicateFaces(features, threshold) {
   const indexed = features.map(feature => ({
     feature,
-    priority: priorities[feature.properties?.cartographic_layer],
     bounds: featureBounds(feature),
     coordinates: geometryToMultiPolygon(feature.geometry),
   }));
   for (let leftIndex = 0; leftIndex < indexed.length; leftIndex += 1) {
     const left = indexed[leftIndex];
-    assert.notEqual(left.priority, undefined, `未知地图层：${left.feature.properties?.cartographic_layer}`);
     for (let rightIndex = leftIndex + 1; rightIndex < indexed.length; rightIndex += 1) {
       const right = indexed[rightIndex];
-      if (left.priority === right.priority || !boundsIntersect(left.bounds, right.bounds)) continue;
+      if (!boundsIntersect(left.bounds, right.bounds)) continue;
       const overlap = polygonClipping.intersection(left.coordinates, right.coordinates);
+      const overlapArea = multiPolygonArea(overlap);
+      const unionArea = multiPolygonArea(left.coordinates) + multiPolygonArea(right.coordinates) - overlapArea;
       assert.ok(
-        multiPolygonArea(overlap) < 1e-5,
-        `${left.feature.properties?.display_name} 与 ${right.feature.properties?.display_name} 仍有跨层重叠`,
+        unionArea <= 0 || overlapArea / unionArea < threshold,
+        `${left.feature.properties?.display_name} 与 ${right.feature.properties?.display_name} 仍是重复地图面`,
       );
     }
   }
@@ -106,10 +105,13 @@ const bounds = geometryBounds(globalMap.features);
 assert.equal(globalMap.year, 1634);
 assert.equal(globalMap.metadata?.reference_year, 1634);
 assert.equal(globalMap.metadata?.fallback_coverage_year, 1650);
-assert.equal(globalMap.metadata?.clipping_strategy, 'polygon_difference_by_cartographic_priority');
-assert.equal(dynamicFeatures.length, regionalMap.features.length);
+assert.equal(globalMap.metadata?.clipping_strategy, 'whole_feature_deduplication_exact_first');
+assert.equal(globalMap.metadata?.world_scope_detail_policy, 'macro_polities_only');
+assert.equal(globalMap.metadata?.duplicate_iou_threshold, 0.45);
+assert.equal(dynamicFeatures.length, 0);
+assert.equal(globalMap.metadata?.source_regional_detail_features, regionalMap.features.length);
 assert.equal(globalMap.metadata?.source_fallback_coverage_features, 347);
-assert.ok(fallbackFeatures.length > 300 && fallbackFeatures.length < 347, '全球覆盖层未按优先级裁剪');
+assert.ok(fallbackFeatures.length > 250 && fallbackFeatures.length < 347, '全球覆盖层未完成整面去重');
 assert.equal(globalMap.metadata?.source_exact_1634_features, 106);
 assert.equal(exactFeatures.length, 106, 'Cliopatria 1634 精确政权数量异常');
 assert.ok(bounds.minLon < -170 && bounds.maxLon > 170, '全球底图未覆盖东西半球');
@@ -127,8 +129,9 @@ assert.ok(
   globalMap.features.every(feature => !/[A-Za-z]/.test(feature.properties?.display_name)),
   '地图仍存在英文显示名',
 );
-assert.ok(dynamicFeatures.every(feature => feature.properties?.reference_year === 1634));
-assert.ok(dynamicFeatures.some(feature => feature.properties?.name === '北直隶'));
+assert.ok(regionalMap.features.some(feature => feature.properties?.name === '北直隶'));
+assert.ok(regionalMap.features.some(feature => feature.properties?.name === '河南'));
+assert.ok(!globalMap.features.some(feature => feature.properties?.display_name === '河南'));
 assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '英格兰王国'));
 assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '神圣罗马帝国诸邦'));
 assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '俄罗斯沙皇国'));
@@ -142,7 +145,7 @@ assert.ok(
   fallbackFeatures.every(feature => !['Korea', 'Tokugawa Shogunate', 'Ainu'].includes(feature.properties?.source_name)),
   '全球底图仍包含被 1634 东亚细图覆盖的重复面',
 );
-assertNoCrossLayerOverlap(globalMap.features);
+assertNoDuplicateFaces(globalMap.features, globalMap.metadata.duplicate_iou_threshold);
 
 console.info(
   `World map overview OK: ${fallbackFeatures.length} fallback faces, ${exactFeatures.length} exact 1634 polities, ${dynamicFeatures.length} dynamic regions, bounds ${JSON.stringify(bounds)}.`,
