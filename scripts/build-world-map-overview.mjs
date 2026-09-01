@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import polygonClipping from 'polygon-clipping';
 import { historicalPolityNameZh } from './map-polity-names-zh.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -17,6 +18,36 @@ const GLOBAL_PREFIX = 'var WORLD_1634_GLOBAL_OVERVIEW=';
 // These 1650 baseline faces are replaced by the repository's more detailed 1634 reconstruction.
 const SUPERSEDED_WORLD_BASE_NAMES = new Set(['Korea', 'Tokugawa Shogunate', 'Ainu']);
 
+// The project reconstruction is more detailed than Cliopatria in these East Asian regions.
+// Other project regions are retained only as gap coverage so the exact 1634 snapshot wins there.
+const PROJECT_PRIORITY_REGION_NAMES = new Set([
+  '东番',
+  '乌思藏',
+  '云南',
+  '北直隶',
+  '南直隶',
+  '后金',
+  '四川',
+  '宁夏',
+  '察哈尔',
+  '山东',
+  '山西',
+  '广东',
+  '广西',
+  '日本',
+  '朝鲜',
+  '江西',
+  '河南',
+  '浙江',
+  '湖广',
+  '福建',
+  '西域',
+  '贵州',
+  '辽东',
+  '陕西',
+  '青海',
+]);
+
 function parseWrappedMap(source, prefix, sourcePath) {
   if (!source.startsWith(prefix)) throw new Error(`Unexpected map wrapper in ${sourcePath}`);
   // The historical source preserves a few shapefile NaN values as JavaScript literals.
@@ -29,6 +60,78 @@ function parseWrappedMap(source, prefix, sourcePath) {
   return JSON.parse(json);
 }
 
+function geometryToMultiPolygon(geometry) {
+  if (geometry?.type === 'Polygon') return [geometry.coordinates];
+  if (geometry?.type === 'MultiPolygon') return geometry.coordinates;
+  return [];
+}
+
+function multiPolygonToGeometry(coordinates) {
+  if (!coordinates.length) return null;
+  return coordinates.length === 1
+    ? { type: 'Polygon', coordinates: coordinates[0] }
+    : { type: 'MultiPolygon', coordinates };
+}
+
+function sanitizeRing(ring) {
+  const cleaned = [];
+  for (const coordinate of ring) {
+    const point = coordinate.map(value => Math.round(value * 1e6) / 1e6);
+    const previous = cleaned.at(-1);
+    if (!previous || previous[0] !== point[0] || previous[1] !== point[1]) cleaned.push(point);
+  }
+  if (cleaned.length && (cleaned[0][0] !== cleaned.at(-1)[0] || cleaned[0][1] !== cleaned.at(-1)[1])) {
+    cleaned.push([...cleaned[0]]);
+  }
+  return cleaned.length >= 4 ? cleaned : null;
+}
+
+function sanitizeMultiPolygon(coordinates) {
+  return coordinates
+    .map(polygon => polygon.map(sanitizeRing).filter(Boolean))
+    .filter(polygon => polygon.length && polygon[0].length >= 4);
+}
+
+function multiPolygonBounds(coordinates) {
+  const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const polygon of coordinates) {
+    for (const ring of polygon) {
+      for (const [longitude, latitude] of ring) {
+        bounds[0] = Math.min(bounds[0], longitude);
+        bounds[1] = Math.min(bounds[1], latitude);
+        bounds[2] = Math.max(bounds[2], longitude);
+        bounds[3] = Math.max(bounds[3], latitude);
+      }
+    }
+  }
+  return bounds;
+}
+
+function boundsIntersect(left, right) {
+  return left[0] <= right[2] && left[2] >= right[0] && left[1] <= right[3] && left[3] >= right[1];
+}
+
+function subtractHigherPriorityGeometry(feature, masks) {
+  let remainder = sanitizeMultiPolygon(geometryToMultiPolygon(feature.geometry));
+  let remainderBounds = multiPolygonBounds(remainder);
+  for (const mask of masks) {
+    if (!remainder.length) break;
+    if (!boundsIntersect(remainderBounds, mask.bounds)) continue;
+    remainder = sanitizeMultiPolygon(polygonClipping.difference(remainder, mask.coordinates));
+    remainderBounds = multiPolygonBounds(remainder);
+  }
+  const geometry = multiPolygonToGeometry(remainder);
+  return geometry ? { ...feature, geometry } : null;
+}
+
+function clipFeatureLayer(features, higherPriorityFeatures) {
+  const masks = higherPriorityFeatures.map(feature => {
+    const coordinates = sanitizeMultiPolygon(geometryToMultiPolygon(feature.geometry));
+    return { coordinates, bounds: multiPolygonBounds(coordinates) };
+  });
+  return features.map(feature => subtractHigherPriorityGeometry(feature, masks)).filter(Boolean);
+}
+
 const [detailedSource, regionalSource, cliopatriaSource] = await Promise.all([
   readFile(detailedMapPath, 'utf8'),
   readFile(regionalOverviewPath, 'utf8'),
@@ -38,7 +141,7 @@ const detailedMap = parseWrappedMap(detailedSource, WORLD_PREFIX, detailedMapPat
 const regionalOverview = parseWrappedMap(regionalSource, REGIONAL_PREFIX, regionalOverviewPath);
 const cliopatriaSnapshot = parseWrappedMap(cliopatriaSource, CLIOPATRIA_PREFIX, cliopatriaSnapshotPath);
 
-const worldBaseFeatures = detailedMap.features
+const rawWorldBaseFeatures = detailedMap.features
   .filter(feature => feature?.properties?.category === 'world_base')
   .filter(feature => !SUPERSEDED_WORLD_BASE_NAMES.has(feature.properties.name))
   .map((feature, index) => {
@@ -55,6 +158,7 @@ const worldBaseFeatures = detailedMap.features
         reference_year: 1634,
         geometry_reference_year: 1650,
         historical_accuracy: 'fallback_coverage_only',
+        cartographic_layer: 'fallback_1650',
         dynamic: false,
       },
     };
@@ -62,7 +166,7 @@ const worldBaseFeatures = detailedMap.features
 
 // Cliopatria 提供直接覆盖 1634 年的政权面。它们绘制在 1650 宏观覆盖层之上，
 // 修正英伦、俄罗斯、神圣罗马帝国、波斯、印度等在 1634 年已经不同的边界。
-const exact1634Features = cliopatriaSnapshot.features.map((feature, index) => {
+const rawExact1634Features = cliopatriaSnapshot.features.map((feature, index) => {
   const sourceName = String(feature.properties?.name || '').trim();
   const displayName = historicalPolityNameZh(sourceName, index);
   return {
@@ -76,6 +180,7 @@ const exact1634Features = cliopatriaSnapshot.features.map((feature, index) => {
       reference_year: 1634,
       geometry_reference_year: 1634,
       historical_accuracy: 'exact_temporal_snapshot',
+      cartographic_layer: 'exact_1634',
       geometry_source: 'Seshat Global History Databank / Cliopatria v0.2.0',
       dynamic: false,
     },
@@ -91,9 +196,26 @@ const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
     reference_year: 1634,
     geometry_reference_year: 1634,
     historical_accuracy: 'project_1634_regional_reconstruction',
+    cartographic_layer: PROJECT_PRIORITY_REGION_NAMES.has(feature.properties.name)
+      ? 'project_1634_priority'
+      : 'project_1634_gap',
     dynamic: true,
   },
 }));
+
+const priorityRegionFeatures = dynamicRegionFeatures.filter(
+  feature => feature.properties.cartographic_layer === 'project_1634_priority',
+);
+const rawGapRegionFeatures = dynamicRegionFeatures.filter(
+  feature => feature.properties.cartographic_layer === 'project_1634_gap',
+);
+const exact1634Features = clipFeatureLayer(rawExact1634Features, priorityRegionFeatures);
+const gapRegionFeatures = clipFeatureLayer(rawGapRegionFeatures, [...priorityRegionFeatures, ...exact1634Features]);
+const worldBaseFeatures = clipFeatureLayer(rawWorldBaseFeatures, [
+  ...priorityRegionFeatures,
+  ...exact1634Features,
+  ...gapRegionFeatures,
+]);
 
 const globalOverview = {
   type: 'FeatureCollection',
@@ -113,15 +235,20 @@ const globalOverview = {
       detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
     fallback_coverage_year: detailedMap.metadata?.world_base_year || 1650,
     accuracy_note:
-      'Cliopatria leaf-polity geometry supplies the exact 1634 temporal snapshot. The 1650 macro layer is retained only as cartographic coverage where the exact dataset has no polity, and the project 1634 East Asian reconstruction has final display priority.',
+      'Cross-source polygons are clipped by priority: project East Asian detail, Cliopatria exact 1634 polity geometry, project gap coverage, then the 1650 fallback layer.',
+    clipping_strategy: 'polygon_difference_by_cartographic_priority',
+    source_fallback_coverage_features: rawWorldBaseFeatures.length,
     fallback_coverage_features: worldBaseFeatures.length,
+    source_exact_1634_features: rawExact1634Features.length,
     exact_1634_features: exact1634Features.length,
-    dynamic_region_features: dynamicRegionFeatures.length,
+    priority_region_features: priorityRegionFeatures.length,
+    gap_region_features: gapRegionFeatures.length,
+    dynamic_region_features: priorityRegionFeatures.length + gapRegionFeatures.length,
   },
-  features: [...worldBaseFeatures, ...exact1634Features, ...dynamicRegionFeatures],
+  features: [...worldBaseFeatures, ...gapRegionFeatures, ...exact1634Features, ...priorityRegionFeatures],
 };
 
 await writeFile(globalOverviewPath, `${GLOBAL_PREFIX}${JSON.stringify(globalOverview)};\n`, 'utf8');
 console.info(
-  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces, ${exact1634Features.length} exact 1634 polities and ${dynamicRegionFeatures.length} dynamic 1634 regions.`,
+  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces, ${exact1634Features.length} exact 1634 polities, ${gapRegionFeatures.length} gap regions and ${priorityRegionFeatures.length} priority regions.`,
 );

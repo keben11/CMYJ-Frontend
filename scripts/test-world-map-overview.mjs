@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import polygonClipping from 'polygon-clipping';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const globalPath = path.join(root, 'assets', 'maps', 'world_1634_global_overview.js');
@@ -29,6 +30,64 @@ function geometryBounds(features) {
   return bounds;
 }
 
+function geometryToMultiPolygon(geometry) {
+  if (geometry?.type === 'Polygon') return [geometry.coordinates];
+  if (geometry?.type === 'MultiPolygon') return geometry.coordinates;
+  return [];
+}
+
+function featureBounds(feature) {
+  return geometryBounds([feature]);
+}
+
+function boundsIntersect(left, right) {
+  return (
+    left.minLon <= right.maxLon &&
+    left.maxLon >= right.minLon &&
+    left.minLat <= right.maxLat &&
+    left.maxLat >= right.minLat
+  );
+}
+
+function ringArea(ring) {
+  let area = 0;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    area += ring[previous][0] * ring[index][1] - ring[index][0] * ring[previous][1];
+  }
+  return Math.abs(area) / 2;
+}
+
+function multiPolygonArea(coordinates) {
+  return coordinates.reduce(
+    (total, polygon) =>
+      total + ringArea(polygon[0]) - polygon.slice(1).reduce((holes, ring) => holes + ringArea(ring), 0),
+    0,
+  );
+}
+
+function assertNoCrossLayerOverlap(features) {
+  const priorities = { fallback_1650: 0, project_1634_gap: 1, exact_1634: 2, project_1634_priority: 3 };
+  const indexed = features.map(feature => ({
+    feature,
+    priority: priorities[feature.properties?.cartographic_layer],
+    bounds: featureBounds(feature),
+    coordinates: geometryToMultiPolygon(feature.geometry),
+  }));
+  for (let leftIndex = 0; leftIndex < indexed.length; leftIndex += 1) {
+    const left = indexed[leftIndex];
+    assert.notEqual(left.priority, undefined, `未知地图层：${left.feature.properties?.cartographic_layer}`);
+    for (let rightIndex = leftIndex + 1; rightIndex < indexed.length; rightIndex += 1) {
+      const right = indexed[rightIndex];
+      if (left.priority === right.priority || !boundsIntersect(left.bounds, right.bounds)) continue;
+      const overlap = polygonClipping.intersection(left.coordinates, right.coordinates);
+      assert.ok(
+        multiPolygonArea(overlap) < 1e-5,
+        `${left.feature.properties?.display_name} 与 ${right.feature.properties?.display_name} 仍有跨层重叠`,
+      );
+    }
+  }
+}
+
 const [globalSource, regionalSource] = await Promise.all([
   readFile(globalPath, 'utf8'),
   readFile(regionalPath, 'utf8'),
@@ -47,8 +106,11 @@ const bounds = geometryBounds(globalMap.features);
 assert.equal(globalMap.year, 1634);
 assert.equal(globalMap.metadata?.reference_year, 1634);
 assert.equal(globalMap.metadata?.fallback_coverage_year, 1650);
+assert.equal(globalMap.metadata?.clipping_strategy, 'polygon_difference_by_cartographic_priority');
 assert.equal(dynamicFeatures.length, regionalMap.features.length);
-assert.ok(fallbackFeatures.length > 300, '全球覆盖层特征数量异常');
+assert.equal(globalMap.metadata?.source_fallback_coverage_features, 347);
+assert.ok(fallbackFeatures.length > 300 && fallbackFeatures.length < 347, '全球覆盖层未按优先级裁剪');
+assert.equal(globalMap.metadata?.source_exact_1634_features, 106);
 assert.equal(exactFeatures.length, 106, 'Cliopatria 1634 精确政权数量异常');
 assert.ok(bounds.minLon < -170 && bounds.maxLon > 170, '全球底图未覆盖东西半球');
 assert.ok(bounds.minLat < -75 && bounds.maxLat > 70, '全球底图未覆盖主要南北纬度');
@@ -80,6 +142,7 @@ assert.ok(
   fallbackFeatures.every(feature => !['Korea', 'Tokugawa Shogunate', 'Ainu'].includes(feature.properties?.source_name)),
   '全球底图仍包含被 1634 东亚细图覆盖的重复面',
 );
+assertNoCrossLayerOverlap(globalMap.features);
 
 console.info(
   `World map overview OK: ${fallbackFeatures.length} fallback faces, ${exactFeatures.length} exact 1634 polities, ${dynamicFeatures.length} dynamic regions, bounds ${JSON.stringify(bounds)}.`,
