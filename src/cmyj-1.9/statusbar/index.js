@@ -16,7 +16,7 @@ import {
 import { normalizeTechnologyCollection } from '../shared/technology.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.10.4';
+const STATUSBAR_VERSION = '1.10.5';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -1304,7 +1304,7 @@ const OWNERSHIP_COLORS_DAY = {
   后金: '#4a6fa5',
   流寇: '#b8953a',
   地方中立: '#9c9c9c',
-  未知: '#d4c5a0',
+  未知: '#b7aa89',
 };
 
 const OWNERSHIP_COLORS_NIGHT = {
@@ -1337,7 +1337,7 @@ function buildStatusData(regions, isNight) {
   const result = [];
   for (const [regionName, geoNames] of Object.entries(activeRegionGeoMap)) {
     const status = regions[regionName]?.争夺状态;
-    const color = status ? colorMap[status] : isNight ? '#4a3828' : '#d4c5a0';
+    const color = status ? colorMap[status] : isNight ? '#51483d' : '#b7aa89';
     for (const geoName of geoNames) {
       result.push({ name: geoName, itemStyle: { areaColor: color } });
     }

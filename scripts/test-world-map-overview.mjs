@@ -87,6 +87,22 @@ function assertNoDuplicateFaces(features, threshold) {
   }
 }
 
+function assertNoCrossGroupOverlap(leftFeatures, rightFeatures, tolerance = 1e-5) {
+  for (const left of leftFeatures) {
+    for (const right of rightFeatures) {
+      if (!boundsIntersect(featureBounds(left), featureBounds(right))) continue;
+      const overlap = polygonClipping.intersection(
+        geometryToMultiPolygon(left.geometry),
+        geometryToMultiPolygon(right.geometry),
+      );
+      assert.ok(
+        multiPolygonArea(overlap) < tolerance,
+        `${left.properties?.display_name} 与 ${right.properties?.display_name} 仍有跨组重叠`,
+      );
+    }
+  }
+}
+
 const [globalSource, regionalSource] = await Promise.all([
   readFile(globalPath, 'utf8'),
   readFile(regionalPath, 'utf8'),
@@ -105,16 +121,16 @@ const bounds = geometryBounds(globalMap.features);
 assert.equal(globalMap.year, 1634);
 assert.equal(globalMap.metadata?.reference_year, 1634);
 assert.equal(globalMap.metadata?.fallback_coverage_year, 1650);
-assert.equal(globalMap.metadata?.clipping_strategy, 'whole_feature_deduplication_coverage_first');
+assert.equal(globalMap.metadata?.clipping_strategy, 'whole_component_deduplication_coverage_first');
 assert.equal(globalMap.metadata?.world_scope_detail_policy, 'complete_fallback_plus_regional_detail');
 assert.equal(globalMap.metadata?.duplicate_iou_threshold, 0.45);
-assert.equal(globalMap.metadata?.regional_macro_coverage_threshold, 0.9);
+assert.equal(globalMap.metadata?.regional_component_overlap_threshold, 0.001);
 assert.equal(dynamicFeatures.length, regionalMap.features.length);
 assert.equal(globalMap.metadata?.source_regional_detail_features, regionalMap.features.length);
 assert.equal(globalMap.metadata?.source_fallback_coverage_features, 347);
 assert.equal(fallbackFeatures.length, 347, '完整全球后备覆盖被误删');
 assert.equal(globalMap.metadata?.source_exact_1634_features, 106);
-assert.ok(exactFeatures.length > 60 && exactFeatures.length < 106, 'Cliopatria 重复政权面未正确整面去重');
+assert.ok(exactFeatures.length > 40 && exactFeatures.length < 106, 'Cliopatria 重复政权面未正确整面去重');
 assert.ok(bounds.minLon < -170 && bounds.maxLon > 170, '全球底图未覆盖东西半球');
 assert.ok(bounds.minLat < -75 && bounds.maxLat > 70, '全球底图未覆盖主要南北纬度');
 assert.equal(new Set(globalMap.features.map(feature => feature.properties?.name)).size, globalMap.features.length);
@@ -133,8 +149,23 @@ assert.ok(
 assert.ok(regionalMap.features.some(feature => feature.properties?.name === '北直隶'));
 assert.ok(regionalMap.features.some(feature => feature.properties?.name === '河南'));
 assert.ok(dynamicFeatures.some(feature => feature.properties?.display_name === '河南'));
-assert.ok(!exactFeatures.some(feature => feature.properties?.display_name === '大明'), '地区细图之下仍保留重复的大明宏观面');
+assert.ok(
+  !exactFeatures.some(feature => feature.properties?.display_name === '大明'),
+  '地区细图之下仍保留重复的大明宏观面',
+);
 assert.ok(exactFeatures.every(feature => feature.properties?.geometry_reference_year === 1634));
+const luzon = dynamicFeatures.find(feature => feature.properties?.display_name === '吕宋');
+assert.ok(luzon, '世界图缺少吕宋地区面');
+const luzonExactOverlap = exactFeatures.reduce((total, feature) => {
+  if (!boundsIntersect(featureBounds(luzon), featureBounds(feature))) return total;
+  return (
+    total +
+    multiPolygonArea(
+      polygonClipping.intersection(geometryToMultiPolygon(luzon.geometry), geometryToMultiPolygon(feature.geometry)),
+    )
+  );
+}, 0);
+assert.ok(luzonExactOverlap < 1e-5, `吕宋仍与精确政权面重叠：${luzonExactOverlap}`);
 assert.ok(
   exactFeatures.every(feature => feature.properties?.source_name !== 'Golden Horde'),
   '仍包含错置的金帐汗国面',
@@ -144,6 +175,7 @@ assert.ok(
   '全球底图仍包含被 1634 东亚细图覆盖的重复面',
 );
 assertNoDuplicateFaces([...fallbackFeatures, ...exactFeatures], globalMap.metadata.duplicate_iou_threshold);
+assertNoCrossGroupOverlap(exactFeatures, dynamicFeatures);
 
 console.info(
   `World map overview OK: ${fallbackFeatures.length} fallback faces, ${exactFeatures.length} exact 1634 polities, ${dynamicFeatures.length} dynamic regions, bounds ${JSON.stringify(bounds)}.`,

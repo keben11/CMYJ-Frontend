@@ -577,11 +577,12 @@ assert.doesNotMatch(v18StatusbarSource, /WORLD_1629/);
 
 assert.ok(v19Loader.length > 1_000, '1.9 加载器未构建');
 assert.match(v19LoaderSource, /REMOTE_ROOT = 'https:\/\/keben11\.github\.io\/CMYJ-Frontend\/cmyj-1\.9\/'/);
-assert.match(v19StatusbarSource, /STATUSBAR_VERSION = '1\.10\.4'/);
+assert.match(v19StatusbarSource, /STATUSBAR_VERSION = '1\.10\.5'/);
 assert.match(v19StatusbarSource, /MAP_ASSET_ROOT = 'https:\/\/keben11\.github\.io\/CMYJ-Frontend\/assets\/maps'/);
 assert.match(v19StatusbarSource, /WORLD_1634_GLOBAL_OVERVIEW/);
 assert.match(v19StatusbarSource, /world_1634_global_overview\.js/);
 assert.match(v19StatusbarSource, /buildActiveRegionIndex/);
+assert.match(v19StatusbarSource, /未知: '#b7aa89'/);
 assert.match(v19WorldMapSource, /^var WORLD_1634_GLOBAL_OVERVIEW=/);
 assert.match(v19WorldMapSource, /"region_key":"奥斯曼帝国"/);
 assert.match(v19WorldMapSource, /"display_name":"河南"/);

@@ -14,7 +14,7 @@ const WORLD_PREFIX = 'var WORLD_1634=';
 const REGIONAL_PREFIX = 'var WORLD_1634_OVERVIEW=';
 const CLIOPATRIA_PREFIX = 'var CLIOPATRIA_1634_SNAPSHOT=';
 const GLOBAL_PREFIX = 'var WORLD_1634_GLOBAL_OVERVIEW=';
-const REGIONAL_MACRO_COVERAGE_THRESHOLD = 0.9;
+const REGIONAL_COMPONENT_OVERLAP_THRESHOLD = 0.001;
 
 // These 1650 baseline faces are replaced by the repository's more detailed 1634 reconstruction.
 const SUPERSEDED_WORLD_BASE_NAMES = new Set(['Korea', 'Tokugawa Shogunate', 'Ainu']);
@@ -147,6 +147,15 @@ function coveredRatio(feature, coveringFeatures) {
   return Math.min(coveredArea / featureArea(feature), 1);
 }
 
+function removeCoveredPolygonComponents(feature, coveringFeatures, threshold) {
+  const retained = geometryToMultiPolygon(feature.geometry).filter(polygon => {
+    const component = { ...feature, geometry: { type: 'Polygon', coordinates: polygon } };
+    return coveredRatio(component, coveringFeatures) < threshold;
+  });
+  const geometry = multiPolygonToGeometry(retained);
+  return geometry ? { ...feature, geometry } : null;
+}
+
 const [detailedSource, regionalSource, cliopatriaSource] = await Promise.all([
   readFile(detailedMapPath, 'utf8'),
   readFile(regionalOverviewPath, 'utf8'),
@@ -221,26 +230,15 @@ const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
 // Keep the complete fallback coverage intact. Matching exact faces are removed whole,
 // rather than deleting a broader fallback face and exposing uncovered territory.
 const exact1634Candidates = deduplicateWholeFeatures(rawExact1634Features, rawWorldBaseFeatures);
-const macroFeatures = [...rawWorldBaseFeatures, ...exact1634Candidates];
-const macroCoverage = macroFeatures.map(feature => ({ feature, ratio: coveredRatio(feature, dynamicRegionFeatures) }));
-if (process.env.CMYJ_MAP_DEBUG_COVERAGE) {
-  console.info(
-    macroCoverage
-      .filter(item => item.ratio > 0.1)
-      .sort((left, right) => right.ratio - left.ratio)
-      .map(item => `${item.feature.properties.display_name}: ${item.ratio.toFixed(4)}`)
-      .join('\n'),
-  );
-}
-const retainedMacroFeatures = macroCoverage
-  .filter(item => item.ratio < REGIONAL_MACRO_COVERAGE_THRESHOLD)
-  .map(item => item.feature);
-const worldBaseFeatures = retainedMacroFeatures.filter(
-  feature => feature.properties.cartographic_layer === 'fallback_1650',
+const exact1634Features = deduplicateWholeFeatures(
+  exact1634Candidates
+    .map(feature =>
+      removeCoveredPolygonComponents(feature, dynamicRegionFeatures, REGIONAL_COMPONENT_OVERLAP_THRESHOLD),
+    )
+    .filter(Boolean),
+  rawWorldBaseFeatures,
 );
-const exact1634Features = retainedMacroFeatures.filter(
-  feature => feature.properties.cartographic_layer === 'exact_1634',
-);
+const worldBaseFeatures = rawWorldBaseFeatures;
 
 const globalOverview = {
   type: 'FeatureCollection',
@@ -260,10 +258,10 @@ const globalOverview = {
       detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
     fallback_coverage_year: detailedMap.metadata?.world_base_year || 1650,
     accuracy_note:
-      'The complete fallback layer is retained to prevent holes. Duplicate exact faces and macro faces fully covered by regional detail are removed whole; no geometry is clipped.',
-    clipping_strategy: 'whole_feature_deduplication_coverage_first',
+      'The complete fallback layer is retained to prevent holes. Duplicate exact faces and exact polygon components overlapped by regional detail are removed whole; coordinate rings are never clipped.',
+    clipping_strategy: 'whole_component_deduplication_coverage_first',
     duplicate_iou_threshold: 0.45,
-    regional_macro_coverage_threshold: REGIONAL_MACRO_COVERAGE_THRESHOLD,
+    regional_component_overlap_threshold: REGIONAL_COMPONENT_OVERLAP_THRESHOLD,
     source_fallback_coverage_features: rawWorldBaseFeatures.length,
     fallback_coverage_features: worldBaseFeatures.length,
     source_exact_1634_features: rawExact1634Features.length,
