@@ -105,15 +105,16 @@ const bounds = geometryBounds(globalMap.features);
 assert.equal(globalMap.year, 1634);
 assert.equal(globalMap.metadata?.reference_year, 1634);
 assert.equal(globalMap.metadata?.fallback_coverage_year, 1650);
-assert.equal(globalMap.metadata?.clipping_strategy, 'whole_feature_deduplication_exact_first');
-assert.equal(globalMap.metadata?.world_scope_detail_policy, 'macro_polities_only');
+assert.equal(globalMap.metadata?.clipping_strategy, 'whole_feature_deduplication_coverage_first');
+assert.equal(globalMap.metadata?.world_scope_detail_policy, 'complete_fallback_plus_regional_detail');
 assert.equal(globalMap.metadata?.duplicate_iou_threshold, 0.45);
-assert.equal(dynamicFeatures.length, 0);
+assert.equal(globalMap.metadata?.regional_macro_coverage_threshold, 0.9);
+assert.equal(dynamicFeatures.length, regionalMap.features.length);
 assert.equal(globalMap.metadata?.source_regional_detail_features, regionalMap.features.length);
 assert.equal(globalMap.metadata?.source_fallback_coverage_features, 347);
-assert.ok(fallbackFeatures.length > 250 && fallbackFeatures.length < 347, '全球覆盖层未完成整面去重');
+assert.equal(fallbackFeatures.length, 347, '完整全球后备覆盖被误删');
 assert.equal(globalMap.metadata?.source_exact_1634_features, 106);
-assert.equal(exactFeatures.length, 106, 'Cliopatria 1634 精确政权数量异常');
+assert.ok(exactFeatures.length > 60 && exactFeatures.length < 106, 'Cliopatria 重复政权面未正确整面去重');
 assert.ok(bounds.minLon < -170 && bounds.maxLon > 170, '全球底图未覆盖东西半球');
 assert.ok(bounds.minLat < -75 && bounds.maxLat > 70, '全球底图未覆盖主要南北纬度');
 assert.equal(new Set(globalMap.features.map(feature => feature.properties?.name)).size, globalMap.features.length);
@@ -131,12 +132,9 @@ assert.ok(
 );
 assert.ok(regionalMap.features.some(feature => feature.properties?.name === '北直隶'));
 assert.ok(regionalMap.features.some(feature => feature.properties?.name === '河南'));
-assert.ok(!globalMap.features.some(feature => feature.properties?.display_name === '河南'));
-assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '英格兰王国'));
-assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '神圣罗马帝国诸邦'));
-assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '俄罗斯沙皇国'));
-assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '后金'));
-assert.ok(exactFeatures.some(feature => feature.properties?.display_name === '托斯卡纳大公国'));
+assert.ok(dynamicFeatures.some(feature => feature.properties?.display_name === '河南'));
+assert.ok(!exactFeatures.some(feature => feature.properties?.display_name === '大明'), '地区细图之下仍保留重复的大明宏观面');
+assert.ok(exactFeatures.every(feature => feature.properties?.geometry_reference_year === 1634));
 assert.ok(
   exactFeatures.every(feature => feature.properties?.source_name !== 'Golden Horde'),
   '仍包含错置的金帐汗国面',
@@ -145,7 +143,7 @@ assert.ok(
   fallbackFeatures.every(feature => !['Korea', 'Tokugawa Shogunate', 'Ainu'].includes(feature.properties?.source_name)),
   '全球底图仍包含被 1634 东亚细图覆盖的重复面',
 );
-assertNoDuplicateFaces(globalMap.features, globalMap.metadata.duplicate_iou_threshold);
+assertNoDuplicateFaces([...fallbackFeatures, ...exactFeatures], globalMap.metadata.duplicate_iou_threshold);
 
 console.info(
   `World map overview OK: ${fallbackFeatures.length} fallback faces, ${exactFeatures.length} exact 1634 polities, ${dynamicFeatures.length} dynamic regions, bounds ${JSON.stringify(bounds)}.`,

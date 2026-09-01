@@ -14,9 +14,37 @@ const WORLD_PREFIX = 'var WORLD_1634=';
 const REGIONAL_PREFIX = 'var WORLD_1634_OVERVIEW=';
 const CLIOPATRIA_PREFIX = 'var CLIOPATRIA_1634_SNAPSHOT=';
 const GLOBAL_PREFIX = 'var WORLD_1634_GLOBAL_OVERVIEW=';
+const REGIONAL_MACRO_COVERAGE_THRESHOLD = 0.9;
 
 // These 1650 baseline faces are replaced by the repository's more detailed 1634 reconstruction.
 const SUPERSEDED_WORLD_BASE_NAMES = new Set(['Korea', 'Tokugawa Shogunate', 'Ainu']);
+const PROJECT_PRIORITY_REGION_NAMES = new Set([
+  '东番',
+  '乌思藏',
+  '云南',
+  '北直隶',
+  '南直隶',
+  '后金',
+  '四川',
+  '宁夏',
+  '察哈尔',
+  '山东',
+  '山西',
+  '广东',
+  '广西',
+  '日本',
+  '朝鲜',
+  '江西',
+  '河南',
+  '浙江',
+  '湖广',
+  '福建',
+  '西域',
+  '贵州',
+  '辽东',
+  '陕西',
+  '青海',
+]);
 
 function parseWrappedMap(source, prefix, sourcePath) {
   if (!source.startsWith(prefix)) throw new Error(`Unexpected map wrapper in ${sourcePath}`);
@@ -106,6 +134,19 @@ function deduplicateWholeFeatures(features, preferredFeatures = []) {
   return output;
 }
 
+function coveredRatio(feature, coveringFeatures) {
+  const coordinates = geometryToMultiPolygon(feature.geometry);
+  const bounds = multiPolygonBounds(coordinates);
+  let coveredArea = 0;
+  for (const cover of coveringFeatures) {
+    const coverCoordinates = geometryToMultiPolygon(cover.geometry);
+    if (!boundsIntersect(bounds, multiPolygonBounds(coverCoordinates))) continue;
+    const intersection = polygonClipping.intersection(coordinates, coverCoordinates);
+    if (intersection.length) coveredArea += featureArea({ geometry: multiPolygonToGeometry(intersection) });
+  }
+  return Math.min(coveredArea / featureArea(feature), 1);
+}
+
 const [detailedSource, regionalSource, cliopatriaSource] = await Promise.all([
   readFile(detailedMapPath, 'utf8'),
   readFile(regionalOverviewPath, 'utf8'),
@@ -161,12 +202,45 @@ const rawExact1634Features = cliopatriaSnapshot.features.map((feature, index) =>
   };
 });
 
-// The world scope deliberately contains only macro-polity faces. Province-level project
-// reconstruction remains available through world_1634_overview.js in the East Asia scope.
-// Duplicate macro faces are removed as whole features. Exact 1634 faces win over
-// matching 1650 fallback faces; geometries are never cut into artificial fragments.
-const exact1634Features = deduplicateWholeFeatures(rawExact1634Features);
-const worldBaseFeatures = deduplicateWholeFeatures(rawWorldBaseFeatures, exact1634Features);
+const dynamicRegionFeatures = regionalOverview.features.map(feature => ({
+  ...feature,
+  properties: {
+    ...feature.properties,
+    display_name: feature.properties.name,
+    region_key: feature.properties.name,
+    reference_year: 1634,
+    geometry_reference_year: 1634,
+    historical_accuracy: 'project_1634_regional_reconstruction',
+    cartographic_layer: PROJECT_PRIORITY_REGION_NAMES.has(feature.properties.name)
+      ? 'project_1634_priority'
+      : 'project_1634_gap',
+    dynamic: true,
+  },
+}));
+
+// Keep the complete fallback coverage intact. Matching exact faces are removed whole,
+// rather than deleting a broader fallback face and exposing uncovered territory.
+const exact1634Candidates = deduplicateWholeFeatures(rawExact1634Features, rawWorldBaseFeatures);
+const macroFeatures = [...rawWorldBaseFeatures, ...exact1634Candidates];
+const macroCoverage = macroFeatures.map(feature => ({ feature, ratio: coveredRatio(feature, dynamicRegionFeatures) }));
+if (process.env.CMYJ_MAP_DEBUG_COVERAGE) {
+  console.info(
+    macroCoverage
+      .filter(item => item.ratio > 0.1)
+      .sort((left, right) => right.ratio - left.ratio)
+      .map(item => `${item.feature.properties.display_name}: ${item.ratio.toFixed(4)}`)
+      .join('\n'),
+  );
+}
+const retainedMacroFeatures = macroCoverage
+  .filter(item => item.ratio < REGIONAL_MACRO_COVERAGE_THRESHOLD)
+  .map(item => item.feature);
+const worldBaseFeatures = retainedMacroFeatures.filter(
+  feature => feature.properties.cartographic_layer === 'fallback_1650',
+);
+const exact1634Features = retainedMacroFeatures.filter(
+  feature => feature.properties.cartographic_layer === 'exact_1634',
+);
 
 const globalOverview = {
   type: 'FeatureCollection',
@@ -175,8 +249,8 @@ const globalOverview = {
   metadata: {
     reference_year: 1634,
     scope: 'global',
-    dynamic_scope: 'All macro-polity features expose stable region_key values for lazy MVU records',
-    world_scope_detail_policy: 'macro_polities_only',
+    dynamic_scope: 'All features expose stable region_key values for lazy MVU records',
+    world_scope_detail_policy: 'complete_fallback_plus_regional_detail',
     detailed_region_source: 'world_1634_overview.js',
     detailed_region_geometry_year: 1634,
     exact_snapshot_source: cliopatriaSnapshot.metadata?.source || 'Seshat Global History Databank / Cliopatria',
@@ -186,20 +260,21 @@ const globalOverview = {
       detailedMap.metadata?.world_base_source || 'aourednik/historical-basemaps world_1650.geojson',
     fallback_coverage_year: detailedMap.metadata?.world_base_year || 1650,
     accuracy_note:
-      'The global scope contains macro-polity faces only. Duplicate faces are removed whole, with exact 1634 geometry preferred over the 1650 fallback; province-level geometry is reserved for the East Asia scope.',
-    clipping_strategy: 'whole_feature_deduplication_exact_first',
+      'The complete fallback layer is retained to prevent holes. Duplicate exact faces and macro faces fully covered by regional detail are removed whole; no geometry is clipped.',
+    clipping_strategy: 'whole_feature_deduplication_coverage_first',
     duplicate_iou_threshold: 0.45,
+    regional_macro_coverage_threshold: REGIONAL_MACRO_COVERAGE_THRESHOLD,
     source_fallback_coverage_features: rawWorldBaseFeatures.length,
     fallback_coverage_features: worldBaseFeatures.length,
     source_exact_1634_features: rawExact1634Features.length,
     exact_1634_features: exact1634Features.length,
     source_regional_detail_features: regionalOverview.features.length,
-    dynamic_region_features: 0,
+    dynamic_region_features: dynamicRegionFeatures.length,
   },
-  features: [...worldBaseFeatures, ...exact1634Features],
+  features: [...worldBaseFeatures, ...exact1634Features, ...dynamicRegionFeatures],
 };
 
 await writeFile(globalOverviewPath, `${GLOBAL_PREFIX}${JSON.stringify(globalOverview)};\n`, 'utf8');
 console.info(
-  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces and ${exact1634Features.length} exact 1634 polities after whole-feature deduplication.`,
+  `Built ${path.relative(root, globalOverviewPath)} with ${worldBaseFeatures.length} fallback faces, ${exact1634Features.length} exact 1634 polities and ${dynamicRegionFeatures.length} regional faces without clipped geometry.`,
 );
