@@ -186,9 +186,12 @@ importers:
       mini-css-extract-plugin:
         specifier: ^2.10.2
         version: 2.10.2(webpack@5.110.3)
+<<<<<<< HEAD
       polygon-clipping:
         specifier: 0.15.7
         version: 0.15.7
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
       postcss:
         specifier: ^8.5.28
         version: 8.5.28
@@ -3182,9 +3185,12 @@ packages:
   pkg-types@2.3.2:
     resolution: {integrity: sha512-v0sVXzj7oPGysr543YYZLYbcJNJsKikSsp/fFzoxQ12ewY3ZZr7oCPC8y7OlmxfYB3QPvriXmuPD8KZggE1vqg==}
 
+<<<<<<< HEAD
   polygon-clipping@0.15.7:
     resolution: {integrity: sha512-nhfdr83ECBg6xtqOAJab1tbksbBAOMUltN60bU+llHVOL0e5Onm1WpAXXWXVB39L8AJFssoIhEVuy/S90MmotA==}
 
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
@@ -3446,9 +3452,12 @@ packages:
   rfdc@1.4.1:
     resolution: {integrity: sha512-q1b3N5QkRUWUl7iyylaaj3kOpIT0N2i9MqIEQXP73GVsN9cw3fdx8X63cEmWhJGi2PPCF23Ijp7ktmd39rawIA==}
 
+<<<<<<< HEAD
   robust-predicates@3.0.3:
     resolution: {integrity: sha512-NS3levdsRIUOmiJ8FZWCP7LG3QpJyrs/TE0Zpf1yvZu8cAJJ6QMW92H1c7kWpdIHo8RvmLxN/o2JXTKHp74lUA==}
 
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
   safe-array-concat@1.1.4:
     resolution: {integrity: sha512-wtZlHyOje6OZTGqAoaDKxFkgRtkF9CnHAVnCHKfuj200wAgL+bSJhdsCD2l0Qx/2ekEXjPWcyKkfGb5CPboslg==}
     engines: {node: '>=0.4'}
@@ -3606,10 +3615,13 @@ packages:
     resolution: {integrity: sha512-1klA3Gi5PD1Wv9Q0wUoOQN1IWAuPu0D1U03ThXTr0cJ20+/iq2tHSDnK7Kk/0LXJ1ztUB2/1Os0wKmfyNgUQfg==}
     hasBin: true
 
+<<<<<<< HEAD
   splaytree@3.2.3:
     resolution: {integrity: sha512-7OXrNWzy6CK+r7Ch9OLPBDTKfB6XlWHjX4P0RU5B3IgFuWPeYN0XtRtlexGRjgbQxpfaUve6jTAwBGWuGntz/w==}
     engines: {node: '>=18.20 || >=20'}
 
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
   sprintf-js@1.0.3:
     resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
 
@@ -7402,11 +7414,14 @@ snapshots:
       exsolve: 1.1.1
       pathe: 2.0.3
 
+<<<<<<< HEAD
   polygon-clipping@0.15.7:
     dependencies:
       robust-predicates: 3.0.3
       splaytree: 3.2.3
 
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
   possible-typed-array-names@1.1.0: {}
 
   postcss-cli@11.0.1(jiti@2.7.0)(postcss@8.5.28):
@@ -7660,8 +7675,11 @@ snapshots:
 
   rfdc@1.4.1: {}
 
+<<<<<<< HEAD
   robust-predicates@3.0.3: {}
 
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
   safe-array-concat@1.1.4:
     dependencies:
       call-bind: 1.0.9
@@ -7838,8 +7856,11 @@ snapshots:
 
   specificity@0.4.1: {}
 
+<<<<<<< HEAD
   splaytree@3.2.3: {}
 
+=======
+>>>>>>> 9c69ceb712d475b9a9bd31fc9b787240061a05a5
   sprintf-js@1.0.3: {}
 
   stable-hash-x@0.2.0: {}
