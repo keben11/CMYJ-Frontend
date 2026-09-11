@@ -14,9 +14,16 @@ import {
   scenarioWorldbookSignature,
 } from '../shared/scenario-cleanup.js';
 import { normalizeTechnologyCollection } from '../shared/technology.js';
+import {
+  financeSeparated,
+  assetOwner,
+  approvedPrivateAsset,
+  privateIncomeByCurrency,
+  settlePrivateIncome,
+} from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.10.5';
+const STATUSBAR_VERSION = '1.11.0';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -1270,7 +1277,9 @@ let activeGeoToRegion = GEO_TO_REGION;
 
 /** 将当前地图资产中的稳定 region_key 编入 MVU 映射；同一政权的多个面会共享一条地区记录。 */
 function buildActiveRegionIndex(geo) {
-  const regionGeoMap = Object.fromEntries(Object.entries(REGION_GEO_MAP).map(([regionName, geoNames]) => [regionName, [...geoNames]]));
+  const regionGeoMap = Object.fromEntries(
+    Object.entries(REGION_GEO_MAP).map(([regionName, geoNames]) => [regionName, [...geoNames]]),
+  );
   const geoToRegion = { ...GEO_TO_REGION };
   for (const feature of geo?.features || []) {
     const geoName = feature?.properties?.name;
@@ -2298,7 +2307,9 @@ function parseChineseYearNumber(value) {
 }
 
 function gregorianYearFromDate(value) {
-  const match = String(value ?? '').match(/(崇祯|弘光|隆武|绍武|永历|顺治|监国鲁|鲁监国)([元一二两三四五六七八九十〇零\d]+)年/);
+  const match = String(value ?? '').match(
+    /(崇祯|弘光|隆武|绍武|永历|顺治|监国鲁|鲁监国)([元一二两三四五六七八九十〇零\d]+)年/,
+  );
   if (!match) return null;
   const year = parseChineseYearNumber(match[2]);
   return Number.isFinite(year) ? REIGN_YEAR_OFFSETS[match[1]] + year : null;
@@ -2631,6 +2642,29 @@ function doSettlementInPlace(variables, options = {}) {
 
   const closeYM = options.closeYM || extractYearMonth(_.get(variables, 'stat_data.世界运转.当前日期', ''));
 
+  if (financeSeparated(data)) {
+    const income = settlePrivateIncome(data, closeYM);
+    if (!income) return null;
+    const result = {
+      assetIncome: income.白银两 || 0,
+      totalTransfer: income.白银两 || 0,
+      armyExpense: 0,
+      grain: {},
+      supplyEffect: {},
+      settledYM: closeYM,
+      afterSilver: number(coins.白银, 0),
+    };
+    if (settleSessionId) data.经济._结算标记 = settleSessionId;
+    writeSettlementRecord(data, result);
+    data.经济.上次结算.类型 = '皇家私人收益跨月结算';
+    data.经济.上次结算.分币种收益 =
+      Object.entries(income)
+        .map(([c, n]) => `${n} ${c}`)
+        .join('；') || '无已核准收益';
+    data.经济.上次结算.军费口径 = '国家财政按实际支出记账；未使用旧式养军估算扣款';
+    return result;
+  }
+
   // 一次性收支已由 AI/状态栏即时改动私库；跨月只处理稳定产业收益与养军成本。
   const assetIncome = sumAssetIncome(assets);
   const beforeSilver = Math.round(number(coins.白银, 0));
@@ -2955,11 +2989,27 @@ async function executeMilitaryCommand(quote) {
       active.some(([, order]) => order.执行将领 === freshQuote.generalName)
     )
       throw new Error(`${freshQuote.generalName}已在主持其他军令`);
-    const coins = ensureObject(ensureObject(ensureObject(data, '主角'), '私库'), '金银铜');
-    const silver = number(coins.白银, 0);
+    const separated = financeSeparated(data);
+    const coins = separated
+      ? ensureObject(ensureObject(ensureObject(data, '经济'), '国家财政'), '余额')
+      : ensureObject(ensureObject(ensureObject(data, '主角'), '私库'), '金银铜');
+    const silverKey = separated ? '白银两' : '白银';
+    if (separated && !Number.isFinite(coins[silverKey]))
+      throw new Error('国库白银余额待核，军令不能从皇家私库垫付；请先登记国家财政余额。');
+    const silver = number(coins[silverKey], 0);
     if (silver + 1e-9 < freshQuote.silver) throw new Error(`白银不足，需 ${freshQuote.silver} 两`);
     if (availableArmyGrain(data) + 1e-9 < freshQuote.grain) throw new Error(`军粮不足，需 ${freshQuote.grain} 石`);
-    coins.白银 = roundMarketNumber(silver - freshQuote.silver);
+    coins[silverKey] = roundMarketNumber(silver - freshQuote.silver);
+    if (separated && freshQuote.silver > 0) {
+      const ledger = ensureObject(data.经济.国家财政, '收支记录');
+      ledger[`军令-${Date.now()}`] = {
+        日期: get(data, '世界运转.当前日期', ''),
+        类型: '支出',
+        金额: freshQuote.silver,
+        币种: '白银两',
+        说明: `${freshQuote.campName}·${freshQuote.label}（状态栏已扣款，勿重复记账）`,
+      };
+    }
     if (freshQuote.grain > 0)
       consumeStoredArmyGrain(data, freshQuote.grain, {
         label: `${freshQuote.campName}·${freshQuote.label}`,
@@ -3309,7 +3359,7 @@ async function deleteMvuPathEverywhere(mvu, path) {
 }
 
 function meta(label, value) {
-  return `<div class="cm-meta"><span>${html(label)}</span><b>${html(value || '未载')}</b></div>`;
+  return `<div class="cm-meta"><span>${html(label)}</span><b>${html(value ?? '未载')}</b></div>`;
 }
 
 function bar(label, value, options = {}) {
@@ -3542,8 +3592,87 @@ function renderMarket() {
     </section>`;
 }
 
+function renderPublicAccount(title, account = {}) {
+  const money = values =>
+    Object.entries(values || {})
+      .map(([currency, value]) => meta(currency, Number.isFinite(value) ? value : '待核'))
+      .join('') || '<p class="cm-empty">尚未核实余额</p>';
+  return card(
+    title,
+    `
+    ${money(account.余额)}
+    ${account.统计期间 ? meta('统计期间', account.统计期间) : ''}
+    <p>${html(account.说明 || '只登记已发生收支；预算与预测不入余额。')}</p>
+    ${Object.keys(account.负债 || {}).length ? `<h4>负债</h4>${money(account.负债)}` : ''}
+    ${foldGroup(
+      `${title} · 实际流水`,
+      recordList(
+        account.收支记录 || {},
+        (name, row) =>
+          `<article class="cm-item"><div class="cm-item-title"><b>${html(name)}</b>${tag(row.类型 || '待核')}</div><p>${html(row.日期 || '')} · ${html(row.金额 ?? '')} ${html(row.币种 || '币种待核')}</p><p>${html(row.说明 || '')}</p></article>`,
+        '尚无实际收支记录。',
+      ),
+    )}`,
+  );
+}
+
+function renderSeparatedMoney() {
+  const economy = get(statData, '经济', {});
+  const store = get(statData, '主角.私库', {});
+  const coins = store.金银铜 || {};
+  const assets = economy.资产 || {};
+  const totals = privateIncomeByCurrency(assets);
+  const grouped = owner => Object.fromEntries(Object.entries(assets).filter(([, a]) => assetOwner(a) === owner));
+  const assetList = owner =>
+    recordList(
+      grouped(owner),
+      (name, asset) => `<article class="cm-item">
+    <div class="cm-item-title"><b>${html(name)}</b>${tag(approvedPrivateAsset(asset) ? '已核准私人收益' : '不自动入账')}</div>
+    <p>${html(asset.说明 || '无说明')}</p>
+    <p>${approvedPrivateAsset(asset) ? '核准月收益' : '原记月入（待核，不作为收益）'}：${html(asset.月入 ?? 0)} ${html(asset.币种 || '白银两')}</p>
+    ${asset.依据 ? `<p>依据：${html(asset.依据)}</p>` : ''}</article>`,
+      '暂无记录。',
+    );
+  const last = economy.上次结算;
+  return `${renderMoneyViewSwitch()}
+    ${foldGroup('国家财政与皇家私产边界', '<p>税收、关税、国企上缴利润与公共资产属于国家；私人分红、租金和投资收益属于皇家私产。国企营业额、GDP、法律、理论与科研拨款不能转成私人月收入。</p><p>皇室公务经费单独列账。借款须同时记录负债；内部转账不增加总收入。币种分开，不自动换算。</p><p>跨月只结算有归属、币种和收益依据的核准私人资产。国家军费按实际财政支出记录；旧式军费估算不再扣私库，也不自动触发欠饷惩罚。</p>')}
+    ${economy.分账说明 ? `<p class="cm-line">${html(economy.分账说明)}</p>` : ''}
+    <div class="cm-grid two">
+      ${renderPublicAccount('国家财政 · 国库', economy.国家财政)}
+      ${card(
+        '皇家私人 · 私库',
+        `${meta('黄金', `${coins.黄金 ?? 0} 两`)}${meta('白银', `${coins.白银 ?? 0} 两`)}${meta('铜钱', `${coins.铜钱 ?? 0} 文`)}${Object.entries(
+          store.其他货币 || {},
+        )
+          .map(([currency, value]) => meta(currency, value))
+          .join('')}<p>历史余额保留；未经核账不据此认定全部属于皇家。</p>`,
+      )}
+      ${renderPublicAccount('皇室公务 · 专款', economy.皇室公务)}
+      ${card(
+        '下月核准私人收益',
+        Object.entries(totals)
+          .map(([currency, value]) => meta(currency, value))
+          .join('') || '<p class="cm-empty">尚无已核准的私人收益。待核记录不自动生息。</p>',
+      )}
+    </div>
+    ${foldGroup(`皇家私人资产 · ${Object.keys(grouped('皇家私人')).length}`, assetList('皇家私人'))}
+    ${foldGroup(`国家资产 · ${Object.keys(grouped('国家')).length}`, assetList('国家'))}
+    ${foldGroup(`非收益记录 · ${Object.keys(grouped('非收益')).length}`, assetList('非收益'))}
+    ${foldGroup(`待核旧账 · ${Object.keys(grouped('待核')).length}`, assetList('待核'))}
+    ${card('上次结算', last?.类型 === '皇家私人收益跨月结算' ? `${meta('日期', last.日期)}${meta('私人收益', last.分币种收益)}<p>${html(last.军费口径)}</p>` : '<p class="cm-empty">分账后尚无结算；旧结算不作为已核准私人收入。</p>')}
+    ${card(
+      '公共仓储',
+      compactObject(
+        economy.仓储 || {},
+        (name, item) =>
+          `<span class="cm-pill"><b>${html(name)}</b>${html(item.数量 ?? 0)}${html(item.单位 || '')}</span>`,
+      ),
+    )}`;
+}
+
 function renderMoney() {
   if (moneyView === 'market') return renderMarket();
+  if (financeSeparated(statData)) return renderSeparatedMoney();
   const coins = get(statData, '主角.私库.金银铜', {});
   const assets = get(statData, '经济.资产', {});
   const storage = get(statData, '经济.仓储', {});
@@ -3707,7 +3836,9 @@ function renderMilitary() {
   const logs = Array.isArray(get(statData, '军事.军令记录', [])) ? get(statData, '军事.军令记录', []) : [];
   const armySupply = estimateArmyMonthlySupply(statData);
   const grain = availableArmyGrain(statData);
-  const silver = roundMarketNumber(get(statData, '主角.私库.金银铜.白银', 0));
+  const silver = financeSeparated(statData)
+    ? (get(statData, '经济.国家财政.余额.白银两', null) ?? '国库待核')
+    : roundMarketNumber(get(statData, '主角.私库.金银铜.白银', 0));
   const activeOrders = entries(orders).filter(([, order]) => order?.状态 === '进行中');
   const runway = armySupply.grain > 0 ? roundMarketNumber(grain / armySupply.grain, 1) : 0;
   const campCards = entries(camps)
@@ -5151,7 +5282,9 @@ async function restoreScenarioCharacterProfiles(backups, options = {}) {
   const expectedContents = options.expectedContents || {};
   const currentByName = new Map(current.map(entry => [entry?.name, String(entry?.content || '')]));
   const unavailable = [...backupMap.keys()].filter(
-    name => !currentByName.has(name) || (expectedContents[name] != null && currentByName.get(name) !== expectedContents[name]),
+    name =>
+      !currentByName.has(name) ||
+      (expectedContents[name] != null && currentByName.get(name) !== expectedContents[name]),
   );
   if (unavailable.length && !options.allowMissing)
     throw new Error(`无法恢复动态人设：基础卡缺少或已改写 ${unavailable.join('、')}。`);
@@ -5634,7 +5767,9 @@ async function importScenarioWorkshopPackage(bundle, options = {}) {
       originalFirstMessages,
       worldbookEntries: (resource.worldbookEntries || []).map(entry => entry.name),
       worldbookEntrySignatures: Object.fromEntries(
-        (resource.worldbookEntries || []).filter(entry => entry?.name).map(entry => [entry.name, scenarioWorldbookSignature(entry)]),
+        (resource.worldbookEntries || [])
+          .filter(entry => entry?.name)
+          .map(entry => [entry.name, scenarioWorldbookSignature(entry)]),
       ),
       worldbookEntryBackups,
       characterAdaptationBackups,
@@ -9075,7 +9210,7 @@ async function bootstrap() {
         const data = _.get(newVars, 'stat_data', null);
         if (oldYM && newYM && oldYM !== newYM) {
           if (data) resetMonthlyMarketStock(data, newYM);
-          if (loadStorage('last_closed_army_ym', '') !== oldYM) {
+          if (financeSeparated(data) || loadStorage('last_closed_army_ym', '') !== oldYM) {
             const settleResult = doSettlementInPlace(newVars, { closeYM: oldYM });
             saveStorage('last_closed_army_ym', oldYM);
             // 自动结算 toast：面板打开时立即可见
