@@ -4,6 +4,29 @@ import { z } from 'zod';
 const Percent = z.coerce.number().transform(value => _.clamp(value, 0, 100));
 const NonnegativeInteger = z.coerce.number().transform(value => Math.max(0, Math.round(value)));
 
+const PublicAccount = z
+  .object({
+    余额: z.record(z.string(), z.number()).prefault({}),
+    负债: z.record(z.string(), z.number()).prefault({}),
+    统计期间: z.string().prefault(''),
+    说明: z.string().prefault('余额尚待核实；不从私人旧账推算'),
+    收支记录: z
+      .record(
+        z.string(),
+        z
+          .object({
+            日期: z.string().prefault(''),
+            类型: z.enum(['收入', '支出', '融资', '偿债', '转入', '转出']).prefault('收入'),
+            金额: z.number().nonnegative().prefault(0),
+            币种: z.string().prefault(''),
+            说明: z.string().prefault(''),
+          })
+          .prefault({}),
+      )
+      .prefault({}),
+  })
+  .prefault({});
+
 const EquipmentLayout = z
   .object({
     主战兵器: z.string().prefault('未载'),
@@ -150,6 +173,7 @@ export const Schema = z.object({
         .prefault({}),
       私库: z
         .object({
+          其他货币: z.record(z.string(), z.number()).prefault({}),
           金银铜: z
             .object({
               黄金: z.coerce.number().prefault(0),
@@ -431,6 +455,11 @@ export const Schema = z.object({
 
   经济: z
     .object({
+      分账启用: z.boolean().prefault(false),
+      _私人收益结算月份: z.string().prefault(''),
+      国家财政: PublicAccount,
+      皇室公务: PublicAccount,
+      分账说明: z.string().prefault(''),
       资产: z
         .record(
           z.string(),
@@ -438,6 +467,10 @@ export const Schema = z.object({
             .object({
               说明: z.string().prefault(''),
               月入: z.coerce.number().prefault(0),
+              归属: z.enum(['皇家私人', '国家', '非收益', '待核']).prefault('待核'),
+              币种: z.string().prefault('白银两'),
+              收益核准: z.boolean().prefault(false),
+              依据: z.string().prefault(''),
             })
             .prefault({ 说明: '', 月入: 0 }),
         )

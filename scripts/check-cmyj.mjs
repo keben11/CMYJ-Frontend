@@ -39,4 +39,11 @@ if (worldEngineTest.status !== 0) {
 }
 if (worldEngineTest.stdout) process.stdout.write(worldEngineTest.stdout);
 
+const financeTest = spawnSync(process.execPath, [path.join(root, 'scripts', 'test-finance-1.9.mjs')], { cwd: root, encoding: 'utf8' });
+if (financeTest.status !== 0) {
+  process.stderr.write(financeTest.stderr || financeTest.stdout);
+  process.exit(financeTest.status || 1);
+}
+if (financeTest.stdout) process.stdout.write(financeTest.stdout);
+
 console.info('残明余烬 1.6、DLC 测试版、1.7、1.8 与 1.9 均通过语法检查，天下演化真实载荷回归通过。');
