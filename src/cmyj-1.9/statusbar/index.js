@@ -25,7 +25,7 @@ import {
 } from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.11.5';
+const STATUSBAR_VERSION = '1.11.6';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -3631,7 +3631,7 @@ function renderPublicAccount(title, account = {}) {
   );
 }
 
-function renderMonthlyFinance(owner) {
+function renderMonthlyFinance(owner, summaryOnly = false) {
   const assets = get(statData, '经济.资产', {});
   const income = {}, expense = {};
   for (const [name, asset] of Object.entries(assets)) {
@@ -3641,6 +3641,11 @@ function renderMonthlyFinance(owner) {
     target[currency] = (target[currency] || 0) + Math.abs(asset.月入);
   }
   const amounts = rows => Object.entries(rows).map(([currency, amount]) => `${roundMarketNumber(amount).toLocaleString('zh-CN')} ${currency}`).join('；') || '0';
+  const summary = meta('月收入', amounts(income)) + meta('月支出', amounts(expense));
+  if (summaryOnly) {
+    const supply = owner === '国家' ? estimateArmyMonthlySupply(statData) : null;
+    return summary + (supply ? meta('养军军费估算', `${supply.cost.toLocaleString('zh-CN')} 两/月`) + meta('养军军粮', `${supply.grain.toLocaleString('zh-CN')} 石/月`) : '') + '<p class="cm-empty">月收支随下方资产更新；军费另列，实际收付见流水。</p>';
+  }
   const detail = sign => recordList(Object.fromEntries(Object.entries(assets).filter(([,a]) => assetOwner(a) === owner && (sign > 0 ? a.月入 > 0 : a.月入 < 0))),
     (name, a) => `<article class="cm-item"><div class="cm-item-title"><b>${html(name)}</b>${tag(`${Math.abs(a.月入).toLocaleString('zh-CN')} ${a.币种 || '白银两'}/月`)}</div><p>${html(a.说明 || '')}</p></article>`, '暂无项目。');
   let military = '';
@@ -3665,16 +3670,16 @@ function renderSeparatedMoney() {
     `<article class="cm-item"><div class="cm-item-title"><b>${html(row.类型)}</b>${tag(`${row.金额 ?? 0} ${row.币种 || '白银两'}`)}</div><p>${html(row.日期 || '')} · ${html(row.说明 || name)}</p></article>`, '暂无收支。');
   return `${renderMoneyViewSwitch()}
     <div class="cm-grid two">
-      ${card('国库', Object.entries(economy.国家财政?.余额 || {}).map(([currency, value]) => meta(currency, value)).join('') + renderAccountLedger(economy.国家财政?.收支记录))}
-      ${card('皇室私库', meta('黄金', `${coins.黄金 ?? 0} 两`) + meta('白银', `${coins.白银 ?? 0} 两`) + meta('铜钱', `${coins.铜钱 ?? 0} 文`) + Object.entries(store.其他货币 || {}).map(([currency, value]) => meta(currency, value)).join('') + renderAccountLedger(store.收支记录))}
+      ${card('国库', Object.entries(economy.国家财政?.余额 || {}).map(([currency, value]) => meta(currency, value)).join('') + renderMonthlyFinance('国家', true))}
+      ${card('皇室私库', meta('黄金', `${coins.黄金 ?? 0} 两`) + meta('白银', `${coins.白银 ?? 0} 两`) + meta('铜钱', `${coins.铜钱 ?? 0} 文`) + Object.entries(store.其他货币 || {}).map(([currency, value]) => meta(currency, value)).join('') + renderMonthlyFinance('皇家私人', true))}
     </div>
     <div class="cm-grid two">
       ${card('国有资产', assetList('国家'))}
       ${card('皇室资产', assetList('皇家私人'))}
     </div>
     <div class="cm-grid two">
-      ${card('国家收入与支出', renderMonthlyFinance('国家') + foldGroup('实际收支流水', ledger(economy.国家财政?.收支记录)))}
-      ${card('皇室收入与支出', renderMonthlyFinance('皇家私人') + foldGroup('实际收支流水', ledger(store.收支记录)))}
+      ${card('国家收入与支出', renderMonthlyFinance('国家') + foldGroup('实际收支流水', renderAccountLedger(economy.国家财政?.收支记录) + ledger(economy.国家财政?.收支记录)))}
+      ${card('皇室收入与支出', renderMonthlyFinance('皇家私人') + foldGroup('实际收支流水', renderAccountLedger(store.收支记录) + ledger(store.收支记录)))}
     </div>
     ${card('仓储', compactObject(economy.仓储 || {}, (name, item) => `<span class="cm-pill"><b>${html(name)}</b>${html(item.数量 ?? 0)}${html(item.单位 || '')}</span>`))}`;
 }

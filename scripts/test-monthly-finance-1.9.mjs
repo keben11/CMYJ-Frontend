@@ -10,4 +10,12 @@ vm.runInContext(src.slice(src.indexOf('function classifyCampType'),src.indexOf('
 const before=JSON.stringify(stat_data);const text=ctx.renderMonthlyFinance('国家');for(const x of ['月度收入:100','月度支出:20','营伍月军费估算:750','一营','教育'])assert(text.includes(x),x);assert(!text.includes('租金'));assert.equal(JSON.stringify(stat_data),before);
 stat_data.经济.资产.税收.月入=200;assert(ctx.renderMonthlyFinance('国家').includes('月度收入:200'));
 assert(ctx.renderMonthlyFinance('皇家私人').includes('月度收入:3'));
+stat_data.经济.资产.家用={归属:'皇家私人',月入:-2,币种:'白银两'};
+const publicSummary=ctx.renderMonthlyFinance('国家',true),royalSummary=ctx.renderMonthlyFinance('皇家私人',true);
+assert(publicSummary.includes('月收入:200'));assert(publicSummary.includes('月支出:20'));
+assert(royalSummary.includes('月收入:3'));assert(royalSummary.includes('月支出:2'));
+assert(!publicSummary.includes('已记收入'));assert(!royalSummary.includes('养军'));
+ctx.meta=(a,b)=>a+':'+b;ctx.card=(a,b)=>a+'\n'+b;ctx.renderMoneyViewSwitch=()=>'';ctx.compactObject=()=>'';
+vm.runInContext(src.slice(src.indexOf('function renderAccountLedger'),src.indexOf('function renderPublicAccount'))+src.slice(src.indexOf('function renderSeparatedMoney'),src.indexOf('function renderMoney()')),ctx);
+const screen=ctx.renderSeparatedMoney();assert(screen.slice(0,screen.indexOf('国有资产')).includes('月收入:200'));assert(screen.slice(0,screen.indexOf('国有资产')).includes('月收入:3'));
 console.log('PASS monthly income/expense split, army detail, variable refresh, ownership separation and no balance mutation');
