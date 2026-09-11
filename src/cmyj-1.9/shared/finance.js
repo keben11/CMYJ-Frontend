@@ -10,14 +10,13 @@ export function assetOwner(asset) {
 export function approvedPrivateAsset(asset) {
   return (
     assetOwner(asset) === '皇家私人' &&
-    asset?.收益核准 === true &&
+    (asset?.收益核准 === undefined || asset?.收益核准 === true) &&
     typeof asset.月入 === 'number' &&
     Number.isFinite(asset.月入) &&
     typeof asset.币种 === 'string' &&
     asset.币种.trim() !== '' &&
     !['__proto__', 'constructor', 'prototype'].includes(asset.币种.trim()) &&
-    typeof asset.依据 === 'string' &&
-    asset.依据.trim() !== ''
+    (asset?.收益核准 === undefined || (typeof asset.依据 === 'string' && asset.依据.trim() !== ''))
   );
 }
 

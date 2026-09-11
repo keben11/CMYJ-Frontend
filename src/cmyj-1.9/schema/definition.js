@@ -464,8 +464,8 @@ export const Schema = z.object({
               月入: z.coerce.number().prefault(0),
               归属: z.enum(['皇家私人', '国家', '非收益', '待核']).prefault('待核'),
               币种: z.string().prefault('白银两'),
-              收益核准: z.boolean().prefault(false),
-              依据: z.string().prefault(''),
+              收益核准: z.boolean().optional(),
+              依据: z.string().optional(),
             })
             .prefault({ 说明: '', 月入: 0 }),
         )
