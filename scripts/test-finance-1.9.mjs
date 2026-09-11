@@ -49,6 +49,25 @@ assert.equal(parsed.经济.资产.旧账.月入, 999999);
 assert.equal(parsed.经济.资产.旧账.收益核准, false);
 assert.deepEqual(parsed.经济.皇室公务.余额, {});
 assert.deepEqual(Schema.parse(parsed), parsed);
+const opened = structuredClone(base);
+opened.经济.账务期初 = {
+  日期: '测试元年七月一日',
+  性质: '续玩结转',
+  国家财政: { 大靖元: 900 },
+  皇家私人: { 白银两: 100, 大靖元: 30 },
+  皇室公务: { 大靖元: 0 },
+  说明: '仅为测试的期初，不能重复算收入',
+};
+opened.经济.央行准备金 = { 余额: { 大靖元: 100 } };
+const openedParsed = Schema.parse(opened);
+assert.deepEqual(openedParsed.经济.账务期初, opened.经济.账务期初);
+openedParsed.经济.国家财政.余额.大靖元 += 200 - 75;
+assert.equal(openedParsed.经济.国家财政.余额.大靖元, 1025);
+assert.equal(openedParsed.经济.账务期初.国家财政.大靖元, 900);
+assert.equal(openedParsed.经济.央行准备金.余额.大靖元, 100);
+assert.deepEqual(Schema.parse(openedParsed), openedParsed);
+assert.equal(Schema.parse({}).经济.账务期初, undefined);
+assert.equal(Schema.parse({}).经济.央行准备金, undefined);
 const src = fs.readFileSync(new URL('../src/cmyj-1.9/statusbar/index.js', import.meta.url), 'utf8');
 const code = src.slice(src.indexOf('function doSettlementInPlace'), src.indexOf('function activeMilitaryOrders'));
 const context = vm.createContext({
