@@ -25,7 +25,7 @@ import {
 } from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.11.3';
+const STATUSBAR_VERSION = '1.11.4';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -3636,54 +3636,27 @@ function renderSeparatedMoney() {
   const store = get(statData, '主角.私库', {});
   const coins = store.金银铜 || {};
   const assets = economy.资产 || {};
-  const totals = privateIncomeByCurrency(assets, statData.经济?.大靖元等值白银);
-  const grouped = owner => Object.fromEntries(Object.entries(assets).filter(([, a]) => assetOwner(a) === owner));
-  const assetList = owner =>
-    recordList(
-      grouped(owner),
-      (name, asset) => `<article class="cm-item">
-    <div class="cm-item-title"><b>${html(name)}</b>${tag(approvedPrivateAsset(asset) ? '已核准私人收益' : '不自动入账')}</div>
-    <p>${html(asset.说明 || '无说明')}</p>
-    <p>${approvedPrivateAsset(asset) ? '核准月收益' : '月度参考（不自动入账）'}：${html(asset.月入 ?? 0)} ${html(asset.币种 || '白银两')}</p>
-    ${asset.依据 ? foldGroup('依据', `<p>${html(asset.依据)}</p>`) : ''}</article>`,
-      '暂无记录。',
-    );
-  const last = economy.上次结算;
+  const assetList = owner => recordList(
+    Object.fromEntries(Object.entries(assets).filter(([, asset]) => assetOwner(asset) === owner)),
+    (name, asset) => `<article class="cm-item"><div class="cm-item-title"><b>${html(name)}</b>${tag(`${asset.月入 ?? 0} ${asset.币种 || '白银两'}/月`)}</div><p>${html(asset.说明 || '无说明')}</p></article>`,
+    '暂无资产。',
+  );
+  const ledger = records => recordList(records || {}, (name, row) =>
+    `<article class="cm-item"><div class="cm-item-title"><b>${html(row.类型)}</b>${tag(`${row.金额 ?? 0} ${row.币种 || '白银两'}`)}</div><p>${html(row.日期 || '')} · ${html(row.说明 || name)}</p></article>`, '暂无收支。');
   return `${renderMoneyViewSwitch()}
-    ${foldGroup('国家财政与皇家私产边界', '<p>税收、关税、国企上缴利润与公共资产属于国家；私人分红、租金和投资收益属于皇家私产。国企营业额、GDP、法律、理论与科研拨款不能转成私人月收入。</p><p>只分国家账和皇室账。国家军政支出走国库，皇室家庭开支走私库；借款记录负债，账户划转不创造收入。计价规则以当前世界书为准。</p><p>跨月只结算有归属、币种和收益依据的核准私人资产。国家军费按实际财政支出记录；旧式军费估算不再扣私库，也不自动触发欠饷惩罚。</p>')}
-    ${economy.分账说明 ? `<p class="cm-line">${html(economy.分账说明)}</p>` : ''}
     <div class="cm-grid two">
-      ${renderPublicAccount('国家账 · 国库', economy.国家财政)}
-      ${card(
-        '皇室账 · 私库',
-        `${meta('黄金', `${coins.黄金 ?? 0} 两`)}${meta('白银', `${coins.白银 ?? 0} 两`)}${meta('铜钱', `${coins.铜钱 ?? 0} 文`)}${Object.entries(
-          store.其他货币 || {},
-        )
-          .map(([currency, value]) => meta(currency, value))
-          .join('')}${renderAccountLedger(store.收支记录)}<p>皇室自有资金与国库分别收付。</p>`,
-      )}
-
-      ${card(
-        '下月核准私人收益',
-        Object.entries(totals)
-          .map(([currency, value]) => meta(currency, value))
-          .join('') || '<p class="cm-empty">尚无已核准的私人收益。待核记录不自动生息。</p>',
-      )}
+      ${card('国库', Object.entries(economy.国家财政?.余额 || {}).map(([currency, value]) => meta(currency, value)).join('') + renderAccountLedger(economy.国家财政?.收支记录))}
+      ${card('皇室私库', meta('黄金', `${coins.黄金 ?? 0} 两`) + meta('白银', `${coins.白银 ?? 0} 两`) + meta('铜钱', `${coins.铜钱 ?? 0} 文`) + Object.entries(store.其他货币 || {}).map(([currency, value]) => meta(currency, value)).join('') + renderAccountLedger(store.收支记录))}
     </div>
-    ${foldGroup('皇室收支流水', renderAccountLedger(store.收支记录) + recordList(store.收支记录 || {}, (name, row) => `<article class="cm-item"><b>${html(row.类型)} · ${html(row.金额)} ${html(row.币种)}</b><p>${html(row.日期)} · ${html(row.说明)}</p></article>`, '尚无新收支。'))}
-    ${foldGroup(`皇家私人资产 · ${Object.keys(grouped('皇家私人')).length}`, assetList('皇家私人'))}
-    ${foldGroup(`国家资产 · ${Object.keys(grouped('国家')).length}`, assetList('国家'))}
-    ${foldGroup(`非收益记录 · ${Object.keys(grouped('非收益')).length}`, assetList('非收益'))}
-    ${foldGroup(`待核旧账 · ${Object.keys(grouped('待核')).length}`, assetList('待核'))}
-    ${card('上次结算', last?.类型 === '皇家私人收益跨月结算' ? `${meta('日期', last.日期)}${meta('私人收益', last.分币种收益)}<p>${html(last.军费口径)}</p>` : '<p class="cm-empty">分账后尚无结算；旧结算不作为已核准私人收入。</p>')}
-    ${card(
-      '公共仓储',
-      compactObject(
-        economy.仓储 || {},
-        (name, item) =>
-          `<span class="cm-pill"><b>${html(name)}</b>${html(item.数量 ?? 0)}${html(item.单位 || '')}</span>`,
-      ),
-    )}`;
+    <div class="cm-grid two">
+      ${card('国有资产', assetList('国家'))}
+      ${card('皇室资产', assetList('皇家私人'))}
+    </div>
+    <div class="cm-grid two">
+      ${card('国家收入与支出', ledger(economy.国家财政?.收支记录))}
+      ${card('皇室收入与支出', ledger(store.收支记录))}
+    </div>
+    ${card('仓储', compactObject(economy.仓储 || {}, (name, item) => `<span class="cm-pill"><b>${html(name)}</b>${html(item.数量 ?? 0)}${html(item.单位 || '')}</span>`))}`;
 }
 
 function renderMoney() {

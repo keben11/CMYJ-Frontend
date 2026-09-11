@@ -47,7 +47,7 @@ assert.deepEqual(swipe, data);
 assert.equal(financeSeparated(Schema.parse({})), false);
 const parsed = Schema.parse(base);
 assert.equal(parsed.经济.资产.旧账.月入, 999999);
-assert.equal(parsed.经济.资产.旧账.收益核准, false);
+assert.equal(parsed.经济.资产.旧账.收益核准, undefined);
 assert.deepEqual(parsed.经济.皇室公务.余额, {});
 assert.deepEqual(Schema.parse(parsed), parsed);
 const src = fs.readFileSync(new URL('../src/cmyj-1.9/statusbar/index.js', import.meta.url), 'utf8');

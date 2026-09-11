@@ -211,6 +211,14 @@
     return true;
   }
 
+  const FINANCE_PATHS = {
+    '资产': ['经济', '资产'],
+    '国库余额': ['经济', '国家财政', '余额'],
+    '国家收支': ['经济', '国家财政', '收支记录'],
+    '皇室余额': ['主角', '私库', '金银铜'],
+    '皇室收支': ['主角', '私库', '收支记录'],
+  };
+
   function renderEditor() {
     const value = getByPath(state.data, state.selectedPath);
     if (!state.selectedPath.length) {
@@ -250,6 +258,7 @@
       <section class="cve-modal" role="dialog" aria-modal="true" aria-label="变量修改器">
         <header class="cve-head"><div class="cve-title"><p>残明余烬 · MVU</p><h2>变量修改器</h2></div><div class="cve-head-actions"><button class="cve-icon" data-cve-refresh title="刷新">↻</button><button class="cve-icon" data-cve-close title="关闭">×</button></div></header>
         <div class="cve-search"><input data-cve-search value="${html(state.query)}" placeholder="搜索变量名、路径或值"></div>
+        <div class="cve-head-actions" style="padding:0 18px 10px">${Object.keys(FINANCE_PATHS).map(label => `<button class="cve-btn" data-cve-finance="${html(label)}">${html(label)}</button>`).join('')}</div>
         <div class="cve-body"><aside class="cve-tree">${renderTree(state.data)}</aside><section class="cve-editor">${renderEditor()}</section></div>
         <footer class="cve-footer"><span class="cve-badge">${state.dirty ? '有未保存修改' : '已同步 latest'}</span><div class="cve-footer-right"><button class="cve-btn" data-cve-undo ${state.undo ? '' : 'disabled'}>撤销删除</button><button class="cve-btn primary" data-cve-save>写回变量</button></div></footer>
       </section>`;
@@ -361,6 +370,12 @@
     if (target.closest('[data-cve-refresh]')) {
       if (state.dirty && !confirm('刷新会丢弃未写回修改，确定刷新吗？')) return;
       refreshData(); render(); return;
+    }
+    const finance = target.closest('[data-cve-finance]');
+    if (finance) {
+      state.selectedPath = [...FINANCE_PATHS[finance.getAttribute('data-cve-finance')]];
+      for (let i = 0; i <= state.selectedPath.length; i++) state.expanded.add(pathKey(state.selectedPath.slice(0, i)));
+      state.query = ''; render(); return;
     }
     const toggle = target.closest('[data-cve-toggle]');
     if (toggle) {
