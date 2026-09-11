@@ -21,11 +21,11 @@ export function approvedPrivateAsset(asset) {
   );
 }
 
-export function privateIncomeByCurrency(assets) {
+export function privateIncomeByCurrency(assets, silverAlias = false) {
   const totals = Object.create(null);
   for (const asset of Object.values(assets || {})) {
     if (!approvedPrivateAsset(asset)) continue;
-    const currency = asset.币种.trim();
+    const currency = silverAlias && asset.币种.trim() === '大靖元' ? '白银两' : asset.币种.trim();
     totals[currency] = (totals[currency] || 0) + asset.月入;
   }
   return totals;
@@ -33,7 +33,7 @@ export function privateIncomeByCurrency(assets) {
 
 export function settlePrivateIncome(data, month) {
   if (!month || data.经济?._私人收益结算月份 === month) return null;
-  const income = privateIncomeByCurrency(data.经济?.资产);
+  const income = privateIncomeByCurrency(data.经济?.资产, data.经济?.大靖元等值白银);
   const applied = Object.create(null);
   data.主角 ??= {};
   data.主角.私库 ??= {};
@@ -56,9 +56,10 @@ export function settlePrivateIncome(data, month) {
   }
   store.收支记录 ??= {};
   for (const [name, asset] of Object.entries(data.经济?.资产 || {})) {
-    if (!approvedPrivateAsset(asset) || !Object.hasOwn(applied, asset.币种.trim()) || !asset.月入) continue;
+    const currency = data.经济?.大靖元等值白银 && asset.币种?.trim() === '大靖元' ? '白银两' : asset.币种?.trim();
+    if (!approvedPrivateAsset(asset) || !Object.hasOwn(applied, currency) || !asset.月入) continue;
     const id = '月结-' + month + '-' + name;
-    store.收支记录[id] = { 日期: month, 类型: asset.月入 > 0 ? '收入' : '支出', 金额: Math.abs(asset.月入), 币种: asset.币种.trim(), 说明: name + '月度净收益（已结算，勿重复收付）' };
+    store.收支记录[id] = { 日期: month, 类型: asset.月入 > 0 ? '收入' : '支出', 金额: Math.abs(asset.月入), 币种: currency, 说明: name + '月度净收益（已结算，勿重复收付）' };
   }
   data.经济._私人收益结算月份 = month;
   return applied;

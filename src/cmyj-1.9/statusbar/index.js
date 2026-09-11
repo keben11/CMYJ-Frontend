@@ -1,3 +1,4 @@
+import { marketItems, marketCategories } from '../shared/market.js';
 import ORIGINAL_TONGCHENG_CHARACTER_PROFILES from './original-tongcheng-character-profiles.json';
 import ORIGINAL_TONGCHENG_CHARACTER_OVERVIEW from './original-tongcheng-character-overview.json';
 import ORIGINAL_TONGCHENG_RELATIONSHIP_GRAPH from './original-tongcheng-relationship-graph.json';
@@ -24,7 +25,7 @@ import {
 } from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.11.2';
+const STATUSBAR_VERSION = '1.11.3';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -2375,13 +2376,13 @@ function extractYearMonth(dateStr) {
   return null;
 }
 
-function roundMarketNumber(value, digits = 3) {
+function roundMarketNumber(value, digits = 6) {
   const factor = 10 ** digits;
   return Math.round((number(value, 0) + Number.EPSILON) * factor) / factor;
 }
 
-function createMonthlyMarketStock() {
-  return Object.fromEntries(MARKET_ITEMS.map(item => [item.id, item.monthlyStock]));
+function createMonthlyMarketStock(market) {
+  return Object.fromEntries(marketItems(MARKET_ITEMS, market).map(item => [item.id, item.monthlyStock]));
 }
 
 function ensureMarketState(data, currentYM = '') {
@@ -2389,7 +2390,7 @@ function ensureMarketState(data, currentYM = '') {
   const market = ensureObject(economy, '市场');
   const indices = ensureObject(market, '价格指数');
   const rates = ensureObject(market, '汇率');
-  for (const [category] of MARKET_CATEGORIES) {
+  for (const [category] of marketCategories(MARKET_CATEGORIES, market)) {
     indices[category] = Math.round(clamp(number(indices[category], 100), 50, 500));
   }
   rates.一两黄金兑白银 = roundMarketNumber(clamp(number(rates.一两黄金兑白银, 6), 3, 20));
@@ -2398,10 +2399,10 @@ function ensureMarketState(data, currentYM = '') {
 
   const monthChanged = Boolean(currentYM && market._库存月份 !== currentYM);
   if (monthChanged || !market._剩余库存 || typeof market._剩余库存 !== 'object') {
-    market._剩余库存 = createMonthlyMarketStock();
+    market._剩余库存 = createMonthlyMarketStock(market);
     if (currentYM) market._库存月份 = currentYM;
   } else {
-    for (const item of MARKET_ITEMS) {
+    for (const item of marketItems(MARKET_ITEMS, market)) {
       if (market._剩余库存[item.id] == null) market._剩余库存[item.id] = item.monthlyStock;
       market._剩余库存[item.id] = Math.round(
         clamp(number(market._剩余库存[item.id], item.monthlyStock), 0, item.monthlyStock),
@@ -2415,7 +2416,7 @@ function ensureMarketState(data, currentYM = '') {
 function resetMonthlyMarketStock(data, currentYM) {
   const market = ensureMarketState(data, '');
   market._库存月份 = currentYM || market._库存月份 || '';
-  market._剩余库存 = createMonthlyMarketStock();
+  market._剩余库存 = createMonthlyMarketStock(market);
   return market;
 }
 
@@ -2436,6 +2437,7 @@ function getMarketPaymentQuote(silverPrice, currency, market) {
     return { key: '铜钱', amount, text: `${amount} 文铜钱` };
   }
   const amount = roundMarketNumber(silverPrice);
+  if (currency === '大靖元') return { key: '白银', amount, text: `${amount} 大靖元（等值白银，共用余额）` };
   return { key: '白银', amount, text: `${amount} 两白银` };
 }
 
@@ -3555,6 +3557,7 @@ function renderMarket() {
       <div>
         <p class="cm-kicker">城中市易 · ${html(market._库存月份 || currentYM || '本月')}</p>
         <h2>平码有数，月初换新</h2>
+        <p>${html(market.计价说明 || '')}</p>
         <p>${html(market.市况 || '平稳')}。货物每月按定额补齐，售罄后须待下月。</p>
       </div>
       <div class="cm-market-wallet">
@@ -3564,13 +3567,13 @@ function renderMarket() {
       </div>
     </section>
     <div class="cm-market-toolbar">
-      <div>${MARKET_CATEGORIES.map(([key, label]) => `<span><b>${html(label)}</b>${number(market.价格指数?.[key], 100)}%</span>`).join('')}</div>
-      <label>支付钱币<select data-market-payment>${['白银', '铜钱', '黄金'].map(currency => `<option value="${currency}"${marketPaymentCurrency === currency ? ' selected' : ''}>${currency}</option>`).join('')}</select></label>
+      <div>${marketCategories(MARKET_CATEGORIES, market).map(([key, label]) => `<span><b>${html(label)}</b>${number(market.价格指数?.[key], 100)}%</span>`).join('')}</div>
+      <label>支付钱币<select data-market-payment>${(statData.经济?.大靖元等值白银 ? ['白银', '大靖元', '铜钱', '黄金'] : ['白银', '铜钱', '黄金']).map(currency => `<option value="${currency}"${marketPaymentCurrency === currency ? ' selected' : ''}>${currency}</option>`).join('')}</select></label>
     </div>
-    ${MARKET_CATEGORIES.map(([category, label]) =>
+    ${marketCategories(MARKET_CATEGORIES, market).map(([category, label]) =>
       foldGroup(
         label,
-        `<div class="cm-market-grid">${MARKET_ITEMS.filter(item => item.category === category)
+        `<div class="cm-market-grid">${marketItems(MARKET_ITEMS, market).filter(item => item.category === category)
           .map(item => renderMarketItem(item, market))
           .join('')}</div>`,
       ),
@@ -3633,7 +3636,7 @@ function renderSeparatedMoney() {
   const store = get(statData, '主角.私库', {});
   const coins = store.金银铜 || {};
   const assets = economy.资产 || {};
-  const totals = privateIncomeByCurrency(assets);
+  const totals = privateIncomeByCurrency(assets, statData.经济?.大靖元等值白银);
   const grouped = owner => Object.fromEntries(Object.entries(assets).filter(([, a]) => assetOwner(a) === owner));
   const assetList = owner =>
     recordList(
@@ -7445,8 +7448,6 @@ async function execRemoveVariable(path) {
 }
 
 async function buyMarketItem(itemId, requestedQuantity, currency) {
-  const item = MARKET_ITEMS.find(candidate => candidate.id === itemId);
-  if (!item) return;
   if (marketTransactionPending) {
     showToast('上一笔交易尚在入账，请稍候。', 'err');
     return;
@@ -7456,7 +7457,7 @@ async function buyMarketItem(itemId, requestedQuantity, currency) {
     showToast('购买数量必须为正整数。', 'err');
     return;
   }
-  const paymentCurrency = ['黄金', '白银', '铜钱'].includes(currency) ? currency : '白银';
+  const paymentCurrency = ['黄金', '白银', '铜钱', '大靖元'].includes(currency) ? currency : '白银';
   const mvu = globalThis.Mvu ?? window.parent?.Mvu;
   if (!mvu?.getMvuData || !mvu?.replaceMvuData) {
     showToast('MVU 尚未初始化，无法交易。', 'err');
@@ -7469,6 +7470,8 @@ async function buyMarketItem(itemId, requestedQuantity, currency) {
     const data = get(variables, 'stat_data', {});
     const currentYM = extractYearMonth(get(data, '世界运转.当前日期', '')) || '';
     const market = ensureMarketState(data, currentYM);
+    const item = marketItems(MARKET_ITEMS, market).find(candidate => candidate.id === itemId);
+    if (!item) return;
     const remaining = Math.round(number(market._剩余库存[item.id], 0));
     if (remaining < quantity) {
       showToast(`本月「${item.name}」仅余 ${remaining}${item.unit}。`, 'err');

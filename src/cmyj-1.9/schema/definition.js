@@ -449,6 +449,7 @@ export const Schema = z.object({
 
   经济: z
     .object({
+      大靖元等值白银: z.boolean().prefault(false),
       分账启用: z.boolean().prefault(false),
       _私人收益结算月份: z.string().prefault(''),
       国家财政: PublicAccount.prefault({}),
@@ -482,6 +483,15 @@ export const Schema = z.object({
         .prefault({}),
       市场: z
         .object({
+          计价说明: z.string().prefault(''),
+          商品价格: z.record(z.string(), z.object({
+            名称: z.string(), 分类: z.string(), 单位: z.string(),
+            白银单价: z.coerce.number().finite().positive(),
+            人民币参考价: z.coerce.number().finite().positive().optional(),
+            月库存: z.coerce.number().int().nonnegative().prefault(100),
+            默认数量: z.coerce.number().int().positive().prefault(1),
+            说明: z.string().prefault(''),
+          })).prefault({}),
           价格指数: z
             .object({
               粮食: z.coerce
@@ -496,7 +506,7 @@ export const Schema = z.object({
                 .number()
                 .transform(v => Math.round(_.clamp(v, 50, 500)))
                 .prefault(100),
-            })
+            }).catchall(z.coerce.number().transform(v => Math.round(_.clamp(v, 50, 500))))
             .prefault({}),
           汇率: z
             .object({
