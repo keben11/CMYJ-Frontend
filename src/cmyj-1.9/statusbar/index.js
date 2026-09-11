@@ -3887,7 +3887,7 @@ function renderMilitary() {
       @media(max-width:760px){.cm-military-desk{grid-template-columns:repeat(3,1fr)}.cm-military-desk .lead{grid-column:1/-1}.cm-army-grid{grid-template-columns:1fr}.cm-command-log article{grid-template-columns:72px minmax(0,1fr)}.cm-command-log span{grid-column:2}.cm-order-slip{grid-template-columns:36px minmax(0,1fr)}.cm-order-cancel{grid-column:2;justify-self:end}.cm-armory{grid-template-columns:1.25fr 1fr}.cm-armory i{grid-column:1/-1}}
     </style>
     <section class="cm-military-desk"><div class="lead"><small>军府月簿·${html(get(statData, '世界运转.当前日期', '未载日期'))}</small><b>${armySupply.people.toLocaleString()} 名在册</b></div><div><small>月度军费</small><b>${armySupply.cost} 两</b></div><div><small>军粮库存</small><b>${grain} 石${armySupply.grain ? ` · ${runway}月` : ''}</b></div><div><small>在行军令</small><b>${activeOrders.length} 道</b></div></section>
-    ${card('养军预算', `<p class="cm-empty" style="text-align:left;margin:0;font-size:12px">私库现银 ${silver} 两；本月预计需银 ${armySupply.cost} 两、军粮 ${armySupply.grain} 石。状态栏军令立即预扣银粮，训练、休整与换装按世界日期推进。</p>`)}
+    ${card('养军预算', `<p class="cm-empty" style="text-align:left;margin:0;font-size:12px">${financeSeparated(statData) ? '国库旧制白银' : '私库现银'} ${silver} 两；本月预计需银 ${armySupply.cost} 两、军粮 ${armySupply.grain} 石。状态栏军令立即预扣银粮，训练、休整与换装按世界日期推进。</p>`)}
     ${foldGroup('营伍名册', campCards ? `<div class="cm-army-grid">${campCards}</div>` : emptyLine('暂无营伍。'), '暂无营伍。')}
     ${foldGroup('在行军令', activeOrders.length ? `<div class="cm-order-stack">${activeOrders.map(([id, order]) => renderMilitaryOrder(id, order)).join('')}</div>` : emptyLine('当前无进行中军令。'))}
     ${foldGroup('军令簿', logBody)}
