@@ -16,7 +16,7 @@ ed.setByPath(ed.state.data,['主角','私库','金银铜','白银'],47);
 ed.setByPath(ed.state.data,['主角','私库','收支记录','购买'],{日期:'本月',类型:'支出',金额:3,币种:'白银两',说明:'购买'});
 await ed.writeStatData();assert.equal(changed,1);ed.refreshData();assert.equal(ed.state.data.经济.资产.店铺.月入,8);assert.equal(ed.state.data.主角.私库.金银铜.白银,47);
 const src=fs.readFileSync(new URL('../src/cmyj-1.9/statusbar/index.js',import.meta.url),'utf8');
-const render=vm.createContext({statData:stored.stat_data,get:_.get,assetOwner,html:String,tag:x=>x,meta:(a,b)=>a+':'+b,card:(a,b)=>a+'\n'+b,renderMoneyViewSwitch:()=>'',recordList:(r,f)=>Object.entries(r).map(([k,v])=>f(k,v)).join('\n'),compactObject:()=>''});
+const render=vm.createContext({statData:stored.stat_data,get:_.get,assetOwner,foldGroup:(a,b)=>a+b,renderMonthlyFinance:()=>'',html:String,tag:x=>x,meta:(a,b)=>a+':'+b,card:(a,b)=>a+'\n'+b,renderMoneyViewSwitch:()=>'',recordList:(r,f)=>Object.entries(r).map(([k,v])=>f(k,v)).join('\n'),compactObject:()=>''});
 vm.runInContext(src.slice(src.indexOf('function renderAccountLedger'),src.indexOf('function renderPublicAccount'))+src.slice(src.indexOf('function renderSeparatedMoney'),src.indexOf('function renderMoney()')),render);
 const output=render.renderSeparatedMoney();for(const x of ['国有资产','皇室资产','8 白银两/月','已记收入:10','已记支出:3','税收','购买'])assert(output.includes(x),x);
 for(const x of ['核准','待核','非收益','上次结算'])assert(!output.includes(x),x);

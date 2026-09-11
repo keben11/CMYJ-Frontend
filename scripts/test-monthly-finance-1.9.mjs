@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import _ from 'lodash';
+import {assetOwner} from '../src/cmyj-1.9/shared/finance.js';
+const src=fs.readFileSync(new URL('../src/cmyj-1.9/statusbar/index.js',import.meta.url),'utf8');
+const stat_data={经济:{资产:{税收:{归属:'国家',月入:100,币种:'白银两'},教育:{归属:'国家',月入:-20,币种:'白银两'},租金:{归属:'皇家私人',月入:3,币种:'白银两'}},国家财政:{余额:{白银两:999},收支记录:{}}},军事:{各营:{一营:{人数:1000,兵种:'步兵',等级:'良好'}}}};
+const ctx=vm.createContext({statData:stat_data,_,get:_.get,entries:Object.entries,number:(v,d=0)=>Number.isFinite(Number(v))?Number(v):d,assetOwner,roundMarketNumber:v=>Math.round(v*1e6)/1e6,meta:(a,b)=>a+':'+b,html:String,tag:String,foldGroup:(a,b)=>a+':'+b,recordList:(o,f)=>Object.entries(o).map(([k,v])=>f(k,v)).join('')});
+vm.runInContext(src.slice(src.indexOf('function classifyCampType'),src.indexOf('function grainStorageEntries'))+src.slice(src.indexOf('function renderMonthlyFinance'),src.indexOf('function renderSeparatedMoney')),ctx);
+const before=JSON.stringify(stat_data);const text=ctx.renderMonthlyFinance('国家');for(const x of ['月度收入:100','月度支出:20','营伍月军费估算:750','一营','教育'])assert(text.includes(x),x);assert(!text.includes('租金'));assert.equal(JSON.stringify(stat_data),before);
+stat_data.经济.资产.税收.月入=200;assert(ctx.renderMonthlyFinance('国家').includes('月度收入:200'));
+assert(ctx.renderMonthlyFinance('皇家私人').includes('月度收入:3'));
+console.log('PASS monthly income/expense split, army detail, variable refresh, ownership separation and no balance mutation');
