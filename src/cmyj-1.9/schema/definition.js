@@ -15,8 +15,8 @@ const FinanceLedger = z.record(z.string(), z.object({
 const PublicAccount = z.object({
   余额: z.record(z.string(), z.number()).prefault({}),
   负债: z.record(z.string(), z.number()).prefault({}),
-  统计期间: z.string().prefault(''),
-  说明: z.string().prefault('只登记实际收支'),
+  统计期间: z.string().optional(),
+  说明: z.string().optional(),
   收支记录: FinanceLedger,
 });
 
@@ -454,7 +454,7 @@ export const Schema = z.object({
       _私人收益结算月份: z.string().prefault(''),
       国家财政: PublicAccount.prefault({}),
       皇室公务: PublicAccount.optional(),
-      分账说明: z.string().prefault(''),
+      分账说明: z.string().optional(),
       资产: z
         .record(
           z.string(),
@@ -547,7 +547,7 @@ export const Schema = z.object({
             .prefault({}),
         })
         .optional(),
-      上次结算: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).prefault({}),
+      上次结算: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
       _结算标记: z.string().prefault(''),
     })
     .prefault({}),

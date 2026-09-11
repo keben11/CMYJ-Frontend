@@ -166,6 +166,12 @@
   }
 
   function shouldShow(path, key, value) {
+    if (String(key).startsWith('_')) return false;
+    if (state.data.经济?.分账启用) {
+      const fullPath = [...path, key].join('.');
+      if (['经济.流水', '经济.皇室公务', '经济.央行准备金', '经济.账务期初', '经济.分账说明', '经济.上次结算'].includes(fullPath)) return false;
+      if (path[0] === '经济' && path[1] === '资产' && ['收益核准', '依据'].includes(key)) return false;
+    }
     const query = state.query.trim().toLowerCase();
     if (!query) return true;
     const label = pathLabel([...path, key]).toLowerCase();
