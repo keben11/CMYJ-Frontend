@@ -8,6 +8,7 @@ import {
   assetOwner,
   privateIncomeByCurrency,
   settlePrivateIncome,
+  recordPrivateWalletChanges,
 } from '../src/cmyj-1.9/shared/finance.js';
 const asset = (月入, 币种 = '白银两') => ({ 月入, 币种, 归属: '皇家私人', 收益核准: true, 依据: '产权与净分红凭据' });
 const base = {
@@ -49,25 +50,6 @@ assert.equal(parsed.经济.资产.旧账.月入, 999999);
 assert.equal(parsed.经济.资产.旧账.收益核准, false);
 assert.deepEqual(parsed.经济.皇室公务.余额, {});
 assert.deepEqual(Schema.parse(parsed), parsed);
-const opened = structuredClone(base);
-opened.经济.账务期初 = {
-  日期: '测试元年七月一日',
-  性质: '续玩结转',
-  国家财政: { 大靖元: 900 },
-  皇家私人: { 白银两: 100, 大靖元: 30 },
-  皇室公务: { 大靖元: 0 },
-  说明: '仅为测试的期初，不能重复算收入',
-};
-opened.经济.央行准备金 = { 余额: { 大靖元: 100 } };
-const openedParsed = Schema.parse(opened);
-assert.deepEqual(openedParsed.经济.账务期初, opened.经济.账务期初);
-openedParsed.经济.国家财政.余额.大靖元 += 200 - 75;
-assert.equal(openedParsed.经济.国家财政.余额.大靖元, 1025);
-assert.equal(openedParsed.经济.账务期初.国家财政.大靖元, 900);
-assert.equal(openedParsed.经济.央行准备金.余额.大靖元, 100);
-assert.deepEqual(Schema.parse(openedParsed), openedParsed);
-assert.equal(Schema.parse({}).经济.账务期初, undefined);
-assert.equal(Schema.parse({}).经济.央行准备金, undefined);
 const src = fs.readFileSync(new URL('../src/cmyj-1.9/statusbar/index.js', import.meta.url), 'utf8');
 const code = src.slice(src.indexOf('function doSettlementInPlace'), src.indexOf('function activeMilitaryOrders'));
 const context = vm.createContext({
@@ -94,3 +76,24 @@ assert.equal(context.doSettlementInPlace({ stat_data: f }, { closeYM: '1643-07' 
 console.log(
   'PASS finance ownership, currencies, preserved unknown balances, schema idempotence, monthly deduplication, alternate-state isolation, integration and no private army debit',
 );
+
+assert.equal(data.主角.私库.收支记录['月结-1643-07-租金'].金额, 10);
+assert.equal(data.主角.私库.收支记录['月结-1643-07-亏损'].类型, '支出');
+assert.deepEqual(Schema.parse(data).主角.私库.收支记录, data.主角.私库.收支记录);
+const walletTest = structuredClone(base);
+const walletBefore = { ...walletTest.主角.私库.金银铜 };
+walletTest.主角.私库.金银铜.白银 -= 4;
+recordPrivateWalletChanges(walletTest, walletBefore, '购买', 'purchase');
+recordPrivateWalletChanges(walletTest, walletBefore, '购买', 'purchase');
+assert.equal(Object.keys(walletTest.主角.私库.收支记录).length, 1);
+assert.equal(walletTest.主角.私库.收支记录['purchase-白银两'].金额, 4);
+assert.equal(walletTest.主角.私库.收支记录['purchase-白银两'].类型, '支出');
+assert.deepEqual(walletTest.经济.国家财政, base.经济.国家财政);
+const exchangeBefore = { ...walletTest.主角.私库.金银铜 };
+walletTest.主角.私库.金银铜.白银 -= 2;
+walletTest.主角.私库.金银铜.铜钱 = 2000;
+recordPrivateWalletChanges(walletTest, exchangeBefore, '兑换', 'exchange', true);
+assert.equal(walletTest.主角.私库.收支记录['exchange-白银两'].类型, '转出');
+assert.equal(walletTest.主角.私库.收支记录['exchange-铜钱文'].类型, '转入');
+assert.equal(src.includes("renderPublicAccount('皇室公务"), false);
+console.log('PASS separate royal ledger, itemized monthly income/cost, idempotent purchases, exchange transfers, and two-account UI');

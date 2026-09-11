@@ -20,10 +20,11 @@ import {
   approvedPrivateAsset,
   privateIncomeByCurrency,
   settlePrivateIncome,
+  recordPrivateWalletChanges,
 } from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.11.1';
+const STATUSBAR_VERSION = '1.11.2';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -3592,6 +3593,16 @@ function renderMarket() {
     </section>`;
 }
 
+function renderAccountLedger(records = {}) {
+  const totals = { 收入: {}, 支出: {} };
+  for (const row of Object.values(records)) {
+    if (!totals[row.类型] || !Number.isFinite(row.金额)) continue;
+    totals[row.类型][row.币种] = (totals[row.类型][row.币种] || 0) + row.金额;
+  }
+  const sum = kind => Object.entries(totals[kind]).map(([currency, value]) => value.toLocaleString('zh-CN') + ' ' + currency).join('；') || '0';
+  return meta('已记收入', sum('收入')) + meta('已记支出', sum('支出'));
+}
+
 function renderPublicAccount(title, account = {}) {
   const money = values =>
     Object.entries(values || {})
@@ -3601,8 +3612,9 @@ function renderPublicAccount(title, account = {}) {
     title,
     `
     ${money(account.余额)}
+    ${renderAccountLedger(account.收支记录)}
     ${account.统计期间 ? meta('统计期间', account.统计期间) : ''}
-    ${account.说明 ? foldGroup('账户说明', `<p>${html(account.说明)}</p>`) : ''}
+    <p>${html(account.说明 || '只登记已发生收支；预算与预测不入余额。')}</p>
     ${Object.keys(account.负债 || {}).length ? `<h4>负债</h4>${money(account.负债)}` : ''}
     ${foldGroup(
       `${title} · 实际流水`,
@@ -3622,10 +3634,6 @@ function renderSeparatedMoney() {
   const coins = store.金银铜 || {};
   const assets = economy.资产 || {};
   const totals = privateIncomeByCurrency(assets);
-  const openingMoney = values =>
-    Object.entries(values || {})
-      .map(([currency, value]) => `${value} ${currency}`)
-      .join('；') || '无';
   const grouped = owner => Object.fromEntries(Object.entries(assets).filter(([, a]) => assetOwner(a) === owner));
   const assetList = owner =>
     recordList(
@@ -3633,27 +3641,25 @@ function renderSeparatedMoney() {
       (name, asset) => `<article class="cm-item">
     <div class="cm-item-title"><b>${html(name)}</b>${tag(approvedPrivateAsset(asset) ? '已核准私人收益' : '不自动入账')}</div>
     <p>${html(asset.说明 || '无说明')}</p>
-    <p>${approvedPrivateAsset(asset) ? '核准月收益' : assetOwner(asset) === '非收益' ? '月收益' : '月度参考额（不自动入账）'}：${html(asset.月入 ?? 0)} ${html(asset.币种 || '白银两')}</p>
-    ${asset.依据 ? foldGroup('核定依据', `<p>${html(asset.依据)}</p>`) : ''}</article>`,
+    <p>${approvedPrivateAsset(asset) ? '核准月收益' : '月度参考（不自动入账）'}：${html(asset.月入 ?? 0)} ${html(asset.币种 || '白银两')}</p>
+    ${asset.依据 ? foldGroup('依据', `<p>${html(asset.依据)}</p>`) : ''}</article>`,
       '暂无记录。',
     );
   const last = economy.上次结算;
   return `${renderMoneyViewSwitch()}
-    ${foldGroup('国家财政与皇家私产边界', '<p>税收、关税、国企上缴利润与公共资产属于国家；私人分红、租金和投资收益属于皇家私产。国企营业额、GDP、法律、理论与科研拨款不能转成私人月收入。</p><p>皇室公务经费单独列账。借款须同时记录负债；内部转账不增加总收入。币种分开，不自动换算。</p><p>跨月只结算有归属、币种和收益依据的核准私人资产。国家军费按实际财政支出记录；旧式军费估算不再扣私库，也不自动触发欠饷惩罚。</p>')}
-    ${economy.账务期初 ? `<p class="cm-line">账目已于 ${html(economy.账务期初.日期)} 结转，后续收支按账户记账。</p>` : ''}
+    ${foldGroup('国家财政与皇家私产边界', '<p>税收、关税、国企上缴利润与公共资产属于国家；私人分红、租金和投资收益属于皇家私产。国企营业额、GDP、法律、理论与科研拨款不能转成私人月收入。</p><p>只分国家账和皇室账。国家军政支出走国库，皇室家庭开支走私库；借款记录负债，账户划转不创造收入。计价规则以当前世界书为准。</p><p>跨月只结算有归属、币种和收益依据的核准私人资产。国家军费按实际财政支出记录；旧式军费估算不再扣私库，也不自动触发欠饷惩罚。</p>')}
+    ${economy.分账说明 ? `<p class="cm-line">${html(economy.分账说明)}</p>` : ''}
     <div class="cm-grid two">
-      ${renderPublicAccount('国家财政 · 国库', economy.国家财政)}
+      ${renderPublicAccount('国家账 · 国库', economy.国家财政)}
       ${card(
-        '皇家私人 · 私库',
+        '皇室账 · 私库',
         `${meta('黄金', `${coins.黄金 ?? 0} 两`)}${meta('白银', `${coins.白银 ?? 0} 两`)}${meta('铜钱', `${coins.铜钱 ?? 0} 文`)}${Object.entries(
           store.其他货币 || {},
         )
           .map(([currency, value]) => meta(currency, value))
-          .join(
-            '',
-          )}<p>${economy.账务期初 ? '可用于私人开支；基金已投入本金另列。' : '历史余额保留；未经核账不据此认定全部属于皇家。'}</p>`,
+          .join('')}${renderAccountLedger(store.收支记录)}<p>皇室自有资金与国库分别收付。</p>`,
       )}
-      ${renderPublicAccount('皇室公务 · 专款', economy.皇室公务)}
+
       ${card(
         '下月核准私人收益',
         Object.entries(totals)
@@ -3661,9 +3667,7 @@ function renderSeparatedMoney() {
           .join('') || '<p class="cm-empty">尚无已核准的私人收益。待核记录不自动生息。</p>',
       )}
     </div>
-    ${economy.账务期初 ? foldGroup('期初结转明细', `<p>${html(economy.账务期初.性质)} · ${html(economy.账务期初.日期)}</p><p>${html(economy.账务期初.说明)}</p><p>期初国库：${html(openingMoney(economy.账务期初.国家财政))}</p><p>期初私库：${html(openingMoney(economy.账务期初.皇家私人))}</p><p>期初皇室公务：${html(openingMoney(economy.账务期初.皇室公务))}</p>`) : ''}
-    ${economy.央行准备金 ? foldGroup('央行专属准备金', renderPublicAccount('货币准备金 · 不计财政可用余额', economy.央行准备金)) : ''}
-    ${economy.分账说明 ? foldGroup('历史账目说明', `<p>${html(economy.分账说明)}</p>`) : ''}
+    ${foldGroup('皇室收支流水', renderAccountLedger(store.收支记录) + recordList(store.收支记录 || {}, (name, row) => `<article class="cm-item"><b>${html(row.类型)} · ${html(row.金额)} ${html(row.币种)}</b><p>${html(row.日期)} · ${html(row.说明)}</p></article>`, '尚无新收支。'))}
     ${foldGroup(`皇家私人资产 · ${Object.keys(grouped('皇家私人')).length}`, assetList('皇家私人'))}
     ${foldGroup(`国家资产 · ${Object.keys(grouped('国家')).length}`, assetList('国家'))}
     ${foldGroup(`非收益记录 · ${Object.keys(grouped('非收益')).length}`, assetList('非收益'))}
@@ -3887,7 +3891,7 @@ function renderMilitary() {
       @media(max-width:760px){.cm-military-desk{grid-template-columns:repeat(3,1fr)}.cm-military-desk .lead{grid-column:1/-1}.cm-army-grid{grid-template-columns:1fr}.cm-command-log article{grid-template-columns:72px minmax(0,1fr)}.cm-command-log span{grid-column:2}.cm-order-slip{grid-template-columns:36px minmax(0,1fr)}.cm-order-cancel{grid-column:2;justify-self:end}.cm-armory{grid-template-columns:1.25fr 1fr}.cm-armory i{grid-column:1/-1}}
     </style>
     <section class="cm-military-desk"><div class="lead"><small>军府月簿·${html(get(statData, '世界运转.当前日期', '未载日期'))}</small><b>${armySupply.people.toLocaleString()} 名在册</b></div><div><small>月度军费</small><b>${armySupply.cost} 两</b></div><div><small>军粮库存</small><b>${grain} 石${armySupply.grain ? ` · ${runway}月` : ''}</b></div><div><small>在行军令</small><b>${activeOrders.length} 道</b></div></section>
-    ${card('养军预算', `<p class="cm-empty" style="text-align:left;margin:0;font-size:12px">${financeSeparated(statData) ? '国库旧制白银' : '私库现银'} ${silver} 两；本月预计需银 ${armySupply.cost} 两、军粮 ${armySupply.grain} 石。状态栏军令立即预扣银粮，训练、休整与换装按世界日期推进。</p>`)}
+    ${card('养军预算', `<p class="cm-empty" style="text-align:left;margin:0;font-size:12px">${financeSeparated(statData) ? '国库现银' : '私库现银'} ${silver} 两；本月预计需银 ${armySupply.cost} 两、军粮 ${armySupply.grain} 石。状态栏军令立即预扣银粮，训练、休整与换装按世界日期推进。</p>`)}
     ${foldGroup('营伍名册', campCards ? `<div class="cm-army-grid">${campCards}</div>` : emptyLine('暂无营伍。'), '暂无营伍。')}
     ${foldGroup('在行军令', activeOrders.length ? `<div class="cm-order-stack">${activeOrders.map(([id, order]) => renderMilitaryOrder(id, order)).join('')}</div>` : emptyLine('当前无进行中军令。'))}
     ${foldGroup('军令簿', logBody)}
@@ -7475,6 +7479,7 @@ async function buyMarketItem(itemId, requestedQuantity, currency) {
     const quote = getMarketPaymentQuote(silverPrice, paymentCurrency, market);
     const privateStore = ensureObject(ensureObject(data, '主角'), '私库');
     const coins = ensureObject(privateStore, '金银铜');
+    const beforeCoins = { ...coins };
     const balance = number(coins[quote.key], 0);
     if (balance + 1e-9 < quote.amount) {
       showToast(`${quote.key}不足：需 ${quote.text}。可先到钱庄兑换。`, 'err');
@@ -7493,6 +7498,7 @@ async function buyMarketItem(itemId, requestedQuantity, currency) {
     }
     storage[item.name].单位 = item.unit;
     storage[item.name].数量 = Math.max(0, number(storage[item.name].数量, 0)) + quantity;
+    recordPrivateWalletChanges(data, beforeCoins, `市集购入${item.name}${quantity}${item.unit}`, `市集-${Date.now()}`);
     await mvu.replaceMvuData(variables, { type: 'message', message_id: 'latest' });
     statData = data;
     lastError = '';
@@ -7529,6 +7535,7 @@ async function exchangeMarketCurrency(kind, requestedAmount) {
     const market = ensureMarketState(data, currentYM);
     const privateStore = ensureObject(ensureObject(data, '主角'), '私库');
     const coins = ensureObject(privateStore, '金银铜');
+    const beforeCoins = { ...coins };
     coins.黄金 = roundMarketNumber(coins.黄金);
     coins.白银 = roundMarketNumber(coins.白银);
     coins.铜钱 = Math.round(number(coins.铜钱, 0));
@@ -7564,6 +7571,7 @@ async function exchangeMarketCurrency(kind, requestedAmount) {
       throw new Error('未知的兑换方向');
     }
 
+    recordPrivateWalletChanges(data, beforeCoins, detail, `钱庄-${Date.now()}`, true);
     await mvu.replaceMvuData(variables, { type: 'message', message_id: 'latest' });
     statData = data;
     lastError = '';
