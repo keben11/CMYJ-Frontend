@@ -4,27 +4,21 @@ import { z } from 'zod';
 const Percent = z.coerce.number().transform(value => _.clamp(value, 0, 100));
 const NonnegativeInteger = z.coerce.number().transform(value => Math.max(0, Math.round(value)));
 
-const PublicAccount = z
-  .object({
-    余额: z.record(z.string(), z.number()).prefault({}),
-    负债: z.record(z.string(), z.number()).prefault({}),
-    统计期间: z.string().prefault(''),
-    说明: z.string().prefault('余额尚待核实；不从私人旧账推算'),
-    收支记录: z
-      .record(
-        z.string(),
-        z
-          .object({
-            日期: z.string().prefault(''),
-            类型: z.enum(['收入', '支出', '融资', '偿债', '转入', '转出']).prefault('收入'),
-            金额: z.number().nonnegative().prefault(0),
-            币种: z.string().prefault(''),
-            说明: z.string().prefault(''),
-          })
-          .prefault({}),
-      )
-      .prefault({}),
-  });
+const FinanceLedger = z.record(z.string(), z.object({
+  日期: z.string().prefault(''),
+  类型: z.enum(['收入', '支出', '融资', '偿债', '转入', '转出']).prefault('收入'),
+  金额: z.number().nonnegative().prefault(0),
+  币种: z.string().prefault(''),
+  说明: z.string().prefault(''),
+}).prefault({})).prefault({});
+
+const PublicAccount = z.object({
+  余额: z.record(z.string(), z.number()).prefault({}),
+  负债: z.record(z.string(), z.number()).prefault({}),
+  统计期间: z.string().prefault(''),
+  说明: z.string().prefault('只登记实际收支'),
+  收支记录: FinanceLedger,
+});
 
 const EquipmentLayout = z
   .object({
@@ -173,6 +167,7 @@ export const Schema = z.object({
       私库: z
         .object({
           其他货币: z.record(z.string(), z.number()).prefault({}),
+          收支记录: FinanceLedger,
           金银铜: z
             .object({
               黄金: z.coerce.number().prefault(0),
@@ -457,18 +452,7 @@ export const Schema = z.object({
       分账启用: z.boolean().prefault(false),
       _私人收益结算月份: z.string().prefault(''),
       国家财政: PublicAccount.prefault({}),
-      皇室公务: PublicAccount.prefault({}),
-      央行准备金: PublicAccount.optional(),
-      账务期初: z
-        .object({
-          日期: z.string(),
-          性质: z.enum(['历史实算', '续玩结转']),
-          国家财政: z.record(z.string(), z.number()),
-          皇家私人: z.record(z.string(), z.number()),
-          皇室公务: z.record(z.string(), z.number()),
-          说明: z.string(),
-        })
-        .optional(),
+      皇室公务: PublicAccount.optional(),
       分账说明: z.string().prefault(''),
       资产: z
         .record(

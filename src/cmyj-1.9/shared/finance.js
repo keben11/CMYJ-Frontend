@@ -51,9 +51,33 @@ export function settlePrivateIncome(data, month) {
     if (['__proto__', 'constructor', 'prototype'].includes(key)) continue;
     const old = wallet[key];
     if (old != null && (typeof old !== 'number' || !Number.isFinite(old))) continue;
-    wallet[key] = Math.round(((old || 0) + amount) * 100) / 100;
+    wallet[key] = Math.round(((old || 0) + amount) * 1e6) / 1e6;
     applied[currency] = amount;
+  }
+  store.收支记录 ??= {};
+  for (const [name, asset] of Object.entries(data.经济?.资产 || {})) {
+    if (!approvedPrivateAsset(asset) || !Object.hasOwn(applied, asset.币种.trim()) || !asset.月入) continue;
+    const id = '月结-' + month + '-' + name;
+    store.收支记录[id] = { 日期: month, 类型: asset.月入 > 0 ? '收入' : '支出', 金额: Math.abs(asset.月入), 币种: asset.币种.trim(), 说明: name + '月度净收益（已结算，勿重复收付）' };
   }
   data.经济._私人收益结算月份 = month;
   return applied;
+}
+
+// Record wallet deltas without changing balances. Exchanges are transfers, not income.
+export function recordPrivateWalletChanges(data, before, description, id, transfer = false) {
+  if (!financeSeparated(data)) return;
+  const store = data.主角.私库;
+  store.收支记录 ??= {};
+  for (const [key, currency] of [['黄金', '黄金两'], ['白银', '白银两'], ['铜钱', '铜钱文']]) {
+    const delta = Math.round(((store.金银铜[key] || 0) - (before[key] || 0)) * 1e6) / 1e6;
+    if (!delta) continue;
+    const recordId = id + '-' + currency;
+    if (Object.hasOwn(store.收支记录, recordId)) continue;
+    store.收支记录[recordId] = {
+      日期: data.世界运转?.当前日期 || '',
+      类型: transfer ? (delta > 0 ? '转入' : '转出') : (delta > 0 ? '收入' : '支出'),
+      金额: Math.abs(delta), 币种: currency, 说明: description + '（状态栏已记账，勿重复收付）',
+    };
+  }
 }
