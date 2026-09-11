@@ -24,8 +24,7 @@ const PublicAccount = z
           .prefault({}),
       )
       .prefault({}),
-  })
-  .prefault({});
+  });
 
 const EquipmentLayout = z
   .object({
@@ -457,8 +456,19 @@ export const Schema = z.object({
     .object({
       分账启用: z.boolean().prefault(false),
       _私人收益结算月份: z.string().prefault(''),
-      国家财政: PublicAccount,
-      皇室公务: PublicAccount,
+      国家财政: PublicAccount.prefault({}),
+      皇室公务: PublicAccount.prefault({}),
+      央行准备金: PublicAccount.optional(),
+      账务期初: z
+        .object({
+          日期: z.string(),
+          性质: z.enum(['历史实算', '续玩结转']),
+          国家财政: z.record(z.string(), z.number()),
+          皇家私人: z.record(z.string(), z.number()),
+          皇室公务: z.record(z.string(), z.number()),
+          说明: z.string(),
+        })
+        .optional(),
       分账说明: z.string().prefault(''),
       资产: z
         .record(

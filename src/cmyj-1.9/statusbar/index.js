@@ -23,7 +23,7 @@ import {
 } from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.11.0';
+const STATUSBAR_VERSION = '1.11.1';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -3602,7 +3602,7 @@ function renderPublicAccount(title, account = {}) {
     `
     ${money(account.余额)}
     ${account.统计期间 ? meta('统计期间', account.统计期间) : ''}
-    <p>${html(account.说明 || '只登记已发生收支；预算与预测不入余额。')}</p>
+    ${account.说明 ? foldGroup('账户说明', `<p>${html(account.说明)}</p>`) : ''}
     ${Object.keys(account.负债 || {}).length ? `<h4>负债</h4>${money(account.负债)}` : ''}
     ${foldGroup(
       `${title} · 实际流水`,
@@ -3622,6 +3622,10 @@ function renderSeparatedMoney() {
   const coins = store.金银铜 || {};
   const assets = economy.资产 || {};
   const totals = privateIncomeByCurrency(assets);
+  const openingMoney = values =>
+    Object.entries(values || {})
+      .map(([currency, value]) => `${value} ${currency}`)
+      .join('；') || '无';
   const grouped = owner => Object.fromEntries(Object.entries(assets).filter(([, a]) => assetOwner(a) === owner));
   const assetList = owner =>
     recordList(
@@ -3629,14 +3633,14 @@ function renderSeparatedMoney() {
       (name, asset) => `<article class="cm-item">
     <div class="cm-item-title"><b>${html(name)}</b>${tag(approvedPrivateAsset(asset) ? '已核准私人收益' : '不自动入账')}</div>
     <p>${html(asset.说明 || '无说明')}</p>
-    <p>${approvedPrivateAsset(asset) ? '核准月收益' : '原记月入（待核，不作为收益）'}：${html(asset.月入 ?? 0)} ${html(asset.币种 || '白银两')}</p>
-    ${asset.依据 ? `<p>依据：${html(asset.依据)}</p>` : ''}</article>`,
+    <p>${approvedPrivateAsset(asset) ? '核准月收益' : assetOwner(asset) === '非收益' ? '月收益' : '月度参考额（不自动入账）'}：${html(asset.月入 ?? 0)} ${html(asset.币种 || '白银两')}</p>
+    ${asset.依据 ? foldGroup('核定依据', `<p>${html(asset.依据)}</p>`) : ''}</article>`,
       '暂无记录。',
     );
   const last = economy.上次结算;
   return `${renderMoneyViewSwitch()}
     ${foldGroup('国家财政与皇家私产边界', '<p>税收、关税、国企上缴利润与公共资产属于国家；私人分红、租金和投资收益属于皇家私产。国企营业额、GDP、法律、理论与科研拨款不能转成私人月收入。</p><p>皇室公务经费单独列账。借款须同时记录负债；内部转账不增加总收入。币种分开，不自动换算。</p><p>跨月只结算有归属、币种和收益依据的核准私人资产。国家军费按实际财政支出记录；旧式军费估算不再扣私库，也不自动触发欠饷惩罚。</p>')}
-    ${economy.分账说明 ? `<p class="cm-line">${html(economy.分账说明)}</p>` : ''}
+    ${economy.账务期初 ? `<p class="cm-line">账目已于 ${html(economy.账务期初.日期)} 结转，后续收支按账户记账。</p>` : ''}
     <div class="cm-grid two">
       ${renderPublicAccount('国家财政 · 国库', economy.国家财政)}
       ${card(
@@ -3645,7 +3649,9 @@ function renderSeparatedMoney() {
           store.其他货币 || {},
         )
           .map(([currency, value]) => meta(currency, value))
-          .join('')}<p>历史余额保留；未经核账不据此认定全部属于皇家。</p>`,
+          .join(
+            '',
+          )}<p>${economy.账务期初 ? '可用于私人开支；基金已投入本金另列。' : '历史余额保留；未经核账不据此认定全部属于皇家。'}</p>`,
       )}
       ${renderPublicAccount('皇室公务 · 专款', economy.皇室公务)}
       ${card(
@@ -3655,6 +3661,9 @@ function renderSeparatedMoney() {
           .join('') || '<p class="cm-empty">尚无已核准的私人收益。待核记录不自动生息。</p>',
       )}
     </div>
+    ${economy.账务期初 ? foldGroup('期初结转明细', `<p>${html(economy.账务期初.性质)} · ${html(economy.账务期初.日期)}</p><p>${html(economy.账务期初.说明)}</p><p>期初国库：${html(openingMoney(economy.账务期初.国家财政))}</p><p>期初私库：${html(openingMoney(economy.账务期初.皇家私人))}</p><p>期初皇室公务：${html(openingMoney(economy.账务期初.皇室公务))}</p>`) : ''}
+    ${economy.央行准备金 ? foldGroup('央行专属准备金', renderPublicAccount('货币准备金 · 不计财政可用余额', economy.央行准备金)) : ''}
+    ${economy.分账说明 ? foldGroup('历史账目说明', `<p>${html(economy.分账说明)}</p>`) : ''}
     ${foldGroup(`皇家私人资产 · ${Object.keys(grouped('皇家私人')).length}`, assetList('皇家私人'))}
     ${foldGroup(`国家资产 · ${Object.keys(grouped('国家')).length}`, assetList('国家'))}
     ${foldGroup(`非收益记录 · ${Object.keys(grouped('非收益')).length}`, assetList('非收益'))}
