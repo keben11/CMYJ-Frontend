@@ -25,7 +25,7 @@ import {
 } from '../shared/finance.js';
 
 const STATUSBAR_ID = 'canming-afterglow-statusbar';
-const STATUSBAR_VERSION = '1.11.4';
+const STATUSBAR_VERSION = '1.11.5';
 const MAP_ASSET_ROOT = 'https://keben11.github.io/CMYJ-Frontend/assets/maps';
 const STORAGE_PREFIX = 'canming-afterglow-1.9:statusbar:';
 const VARIABLE_EDITOR_FILE = '变量修改器.js';
@@ -2256,10 +2256,10 @@ function inferEquipmentLayout(camp, preset = '') {
   if (preset === '骑军制式' || /[骑马骆驼]/.test(text)) {
     return { 主战兵器: '马刀', 远射兵器: '骑弓', 防具: '轻甲', 火器: '无', 坐骑: '战马', 齐备率: 55, 完好率: 70 };
   }
-  if (preset === '火器制式' || /[火器鸟铳铳炮车营]/.test(text)) {
+  if (preset === '火器制式' || /火器|鸟铳|铳炮|车营/.test(text)) {
     return { 主战兵器: '腰刀', 远射兵器: '鸟铳', 防具: '棉甲', 火器: '鸟铳', 坐骑: '无', 齐备率: 50, 完好率: 65 };
   }
-  if (preset === '水师制式' || /[水师船舟]/.test(text)) {
+  if (preset === '水师制式' || /水师|海军|舰队|船|舟/.test(text)) {
     return { 主战兵器: '腰刀', 远射兵器: '弓弩', 防具: '棉甲', 火器: '火铳', 坐骑: '战船', 齐备率: 55, 完好率: 65 };
   }
   return { 主战兵器: '长枪', 远射兵器: '弓箭', 防具: '棉甲', 火器: '无', 坐骑: '无', 齐备率: 45, 完好率: 70 };
@@ -2443,11 +2443,11 @@ function getMarketPaymentQuote(silverPrice, currency, market) {
 
 function classifyCampType(camp) {
   const text = `${camp?.兵种 || ''} ${camp?.等级 || ''} ${camp?.装备 || ''}`;
-  if (/[家丁亲兵内丁]/.test(text)) return 'retinue';
+  if (/家丁|亲兵|内丁|羽林/.test(text)) return 'retinue';
   if (/[骑马骡驼]/.test(text)) return 'cavalry';
   if (/[水师船舟]/.test(text)) return 'navy';
   if (/[火器鸟铳铳炮车营]/.test(text)) return 'firearm';
-  if (/[民壮乡勇团练]/.test(text)) return 'militia';
+  if (/民壮|乡勇|团练/.test(text)) return 'militia';
   return 'infantry';
 }
 
@@ -3631,6 +3631,26 @@ function renderPublicAccount(title, account = {}) {
   );
 }
 
+function renderMonthlyFinance(owner) {
+  const assets = get(statData, '经济.资产', {});
+  const income = {}, expense = {};
+  for (const [name, asset] of Object.entries(assets)) {
+    if (assetOwner(asset) !== owner || !Number.isFinite(asset.月入) || !asset.月入) continue;
+    const currency = statData.经济?.大靖元等值白银 && asset.币种 === '大靖元' ? '白银两' : (asset.币种 || '白银两');
+    const target = asset.月入 > 0 ? income : expense;
+    target[currency] = (target[currency] || 0) + Math.abs(asset.月入);
+  }
+  const amounts = rows => Object.entries(rows).map(([currency, amount]) => `${roundMarketNumber(amount).toLocaleString('zh-CN')} ${currency}`).join('；') || '0';
+  const detail = sign => recordList(Object.fromEntries(Object.entries(assets).filter(([,a]) => assetOwner(a) === owner && (sign > 0 ? a.月入 > 0 : a.月入 < 0))),
+    (name, a) => `<article class="cm-item"><div class="cm-item-title"><b>${html(name)}</b>${tag(`${Math.abs(a.月入).toLocaleString('zh-CN')} ${a.币种 || '白银两'}/月`)}</div><p>${html(a.说明 || '')}</p></article>`, '暂无项目。');
+  let military = '';
+  if (owner === '国家') {
+    const supply = estimateArmyMonthlySupply(statData);
+    military = meta('营伍月军费估算', `${supply.cost.toLocaleString('zh-CN')} 两`) + meta('月军粮', `${supply.grain.toLocaleString('zh-CN')} 石`) + foldGroup('各营军费', supply.details.map(row => `<p>${html(row.name)}：${row.cost.toLocaleString('zh-CN')} 两/月 · ${row.grain.toLocaleString('zh-CN')} 石/月</p>`).join('')) + '<p class="cm-empty">军费按现有营伍公式估算，单列展示，未叠加统筹预算；实际拨付记下方收支流水。</p>';
+  }
+  return meta('月度收入', amounts(income)) + meta('月度支出', amounts(expense)) + foldGroup('收入项目', detail(1)) + foldGroup('支出项目', detail(-1)) + military + '<p class="cm-empty">按当前资产月入汇总，负数列为支出；月度计划不重复改动现银。</p>';
+}
+
 function renderSeparatedMoney() {
   const economy = get(statData, '经济', {});
   const store = get(statData, '主角.私库', {});
@@ -3653,8 +3673,8 @@ function renderSeparatedMoney() {
       ${card('皇室资产', assetList('皇家私人'))}
     </div>
     <div class="cm-grid two">
-      ${card('国家收入与支出', ledger(economy.国家财政?.收支记录))}
-      ${card('皇室收入与支出', ledger(store.收支记录))}
+      ${card('国家收入与支出', renderMonthlyFinance('国家') + foldGroup('实际收支流水', ledger(economy.国家财政?.收支记录)))}
+      ${card('皇室收入与支出', renderMonthlyFinance('皇家私人') + foldGroup('实际收支流水', ledger(store.收支记录)))}
     </div>
     ${card('仓储', compactObject(economy.仓储 || {}, (name, item) => `<span class="cm-pill"><b>${html(name)}</b>${html(item.数量 ?? 0)}${html(item.单位 || '')}</span>`))}`;
 }
